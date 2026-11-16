@@ -23,6 +23,16 @@ func TestPlanReport(t *testing.T) {
 			want: "add fleet 1\nadd fleet 2\n",
 		},
 		{
+			name: "legacy versions to add, after the others",
+			plan: Plan{Add: []Ref{{Chart: "fleet", Version: "2"}}, AddLegacy: []Ref{{Chart: "fleet", Version: "1"}}},
+			want: "add fleet 2\nadd legacy fleet 1\n",
+		},
+		{
+			name: "only legacy versions to add",
+			plan: Plan{AddLegacy: []Ref{{Chart: "fleet", Version: "1"}}},
+			want: "add legacy fleet 1\n",
+		},
+		{
 			name: "versions to hide",
 			plan: Plan{Hide: []Ref{{Chart: "fleet", Version: "1"}}},
 			want: "hide fleet 1\n",

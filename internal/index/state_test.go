@@ -94,6 +94,24 @@ func TestPlan(t *testing.T) {
 			want: Plan{},
 		},
 		{
+			name: "a legacy version that is not published yet is added, with no archive",
+			state: State{
+				Entries: fleet("1"),
+				Legacy:  fleet("0.9", "0.8"),
+			},
+			want: Plan{Add: fleet("1"), AddLegacy: fleet("0.8", "0.9")},
+		},
+		{
+			name: "a legacy version that is published needs no entry in entries/ and no archive",
+			state: State{
+				Entries:   fleet("1"),
+				Legacy:    fleet("0.9"),
+				Published: fleet("0.9", "1"),
+				Archives:  fleet("1"),
+			},
+			want: Plan{},
+		},
+		{
 			name: "versions to add and to hide at once",
 			state: State{
 				Entries:   fleet("1", "2", "3"),
@@ -176,6 +194,32 @@ func TestPlanFails(t *testing.T) {
 				Published: fleet("1"),
 			},
 			wantErr: []string{"fleet 1 is in index.yaml but has no archive in assets/"},
+		},
+		{
+			name: "a version in entries/ and in legacy/",
+			state: State{
+				Entries: fleet("1"),
+				Legacy:  fleet("1"),
+			},
+			wantErr: []string{"fleet 1 is in entries/ and in legacy/"},
+		},
+		{
+			name: "a legacy version that has an archive",
+			state: State{
+				Legacy:    fleet("0.9"),
+				Published: fleet("0.9"),
+				Archives:  fleet("0.9"),
+			},
+			wantErr: []string{"assets/ has an archive of fleet 0.9, which is a legacy version: it has none"},
+		},
+		{
+			name: "a published version with no entry in either folder",
+			state: State{
+				Entries:   fleet("1"),
+				Published: fleet("0.9", "1"),
+				Archives:  fleet("1"),
+			},
+			wantErr: []string{"fleet 0.9 is in index.yaml but has no entry: entries are never removed"},
 		},
 		{
 			name: "every version at fault is named",
