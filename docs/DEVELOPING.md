@@ -152,7 +152,7 @@ Each kind has one function in `internal/annotations` (`ValidateMainChart`, `Vali
 
 ### check chart
 
-`cargueiro check chart <chart-dir>` ties the pieces together: `internal/chart` reads `Chart.yaml` and `values.yaml` into memory (nothing else in the directory is read; a chart with no `values.yaml` has no values and no images), `internal/check` finds the chart in the rules and runs the annotation checks, the `helm.sh/images` checks and the version checks, and `cmd` prints the result.
+`cargueiro check chart <chart-dir>` ties the pieces together: `internal/chart` reads `Chart.yaml` and `values.yaml` into memory, and every subchart under `charts/` the same way, recursively, as `Dependencies` (nothing else in the directory is read; a chart with no `values.yaml` has no values and no images, and the same holds for a subchart), `internal/check` finds the chart in the rules and runs the annotation checks, the `helm.sh/images` checks and the version checks, and `cmd` prints the result.
 
 | Outcome | stdout | stderr | Exit |
 |---------|--------|--------|------|
@@ -207,7 +207,7 @@ With `--family`, `cmd` resolves the folders against the family in `rules.yaml` (
 
 ### helm.sh/images
 
-The `helm.sh/images` annotation follows [Helm HIP-15](https://github.com/helm/community/blob/main/hips/hip-0015.md), a draft, and adds Rancher policy on top. `ValidateHelmImages(annotations, values)` is meant to run for every kind, next to the kind's own validator, and takes the parsed `Chart.yaml` annotations and `values.yaml`. A chart whose `values.yaml` has no images needs no annotation.
+The `helm.sh/images` annotation follows [Helm HIP-15](https://github.com/helm/community/blob/main/hips/hip-0015.md), a draft, and adds Rancher policy on top. `ValidateHelmImages(annotations, values, dependencies)` is meant to run for every kind, next to the kind's own validator, and takes the parsed `Chart.yaml` annotations, `values.yaml`, and the chart's subcharts under `charts/` (`chart.Files.Dependencies`, read recursively). A chart whose `values.yaml`, and whose subcharts' `values.yaml`, have no images needs no annotation.
 
 | Rule | Source |
 |------|--------|
@@ -217,12 +217,14 @@ The `helm.sh/images` annotation follows [Helm HIP-15](https://github.com/helm/co
 | `image` is written `repository:tag` | Rancher policy (HIP-15 only says "a location") |
 | An image in `values.yaml` is a map with a `repository` key. It needs a non-empty string `repository` and `tag` (quote a numeric tag: `tag: 1.10` is rejected); both empty means no image | Rancher policy |
 | A string value under any key, including one called `image`, is not an image and is ignored | Rancher policy |
-| Every image in `values.yaml` is listed in the annotation, compared as `repository:tag` | Rancher policy |
-| An entry that is not in `values.yaml` has a non-empty `dependency`, whose value is not checked | Rancher policy |
+| Every image in `values.yaml` and in every subchart's `values.yaml` is listed in the annotation, compared as `repository:tag` | Rancher policy |
+| An entry that is not in `values.yaml` or a subchart's has a non-empty `dependency`, whose value is not checked | Rancher policy |
 
 The `registry` key beside a `repository` in `values.yaml` is never part of a comparison, because the release process switches it between registries. An annotation image is compared as written, so `registry.suse.com/rancher/a:1` does not match `repository: rancher/a` with `tag: "1"`.
 
-Known limits: a chart repository URL under a `repository` key is read as an image, and `repo@sha256:...` passes the image format.
+An image found in a subchart's `values.yaml` is named the same way a top-level one is (`GenerateHelmImages`), and gets a `dependency` naming the subchart it came from: its own chart name (from its `Chart.yaml`, not the name of its directory or `.tgz`), or `parent/child` for one nested further in. A subchart is read recursively, whether it is a directory or a packaged `.tgz`, in a source directory (`chart.Load`) or inside a chart archive (`chart.LoadArchive`, used by `check archive` and `check oci`), so the same chart gives the same `Dependencies`, and the same `helm.sh/images` checks, wherever it is read from. A `.tgz` inside another `.tgz` is never read, because Helm always writes a dependency as a directory when it packages a chart.
+
+Known limits: a chart repository URL under a `repository` key is read as an image, and `repo@sha256:...` passes the image format. A subchart's `alias` in the parent's `Chart.yaml` `dependencies` list is not used; the `dependency` is always the subchart's own name.
 
 ## Linting
 
