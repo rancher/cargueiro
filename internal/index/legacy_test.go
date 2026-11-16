@@ -185,3 +185,26 @@ func TestWriteLegacyFails(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteWithoutAnEntriesFolder(t *testing.T) {
+	// A repository that has only legacy versions has no entries/: git does not
+	// keep an empty folder.
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"legacy/fleet/" + legacyVersion + ".yaml": legacyText(legacyVersion, legacyDigest, legacyURL)})
+
+	plan, err := Write(context.Background(), loadRules(t), dir, Options{Registry: testRegistry, Pull: (&fakePull{}).pull})
+
+	require.NoError(t, err)
+	require.Equal(t, Plan{AddLegacy: []Ref{{Chart: "fleet", Version: legacyVersion}}}, plan)
+	require.FileExists(t, filepath.Join(dir, "index.yaml"))
+	require.NoDirExists(t, filepath.Join(dir, "entries"), "and none is made")
+}
+
+func TestWriteWithNothingAtAll(t *testing.T) {
+	dir := t.TempDir()
+
+	plan, err := Write(context.Background(), loadRules(t), dir, Options{Registry: testRegistry, Pull: (&fakePull{}).pull})
+
+	require.NoError(t, err)
+	require.Equal(t, Plan{}, plan)
+}
