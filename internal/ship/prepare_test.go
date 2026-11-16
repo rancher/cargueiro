@@ -76,7 +76,7 @@ func complianceArchive(t *testing.T, edit func(string) string) []byte {
 	})
 	files, err := chart.Load(dir)
 	require.NoError(t, err)
-	images, _, problems := annotations.GenerateHelmImages(files.Annotations, files.Values)
+	images, _, problems := annotations.GenerateHelmImages(files.Annotations, files.Values, files.Dependencies)
 	require.Empty(t, problems)
 
 	chartYAML, err := chart.SetVersion([]byte(readFixture(t, "rancher-compliance-upstream/src/rancher-compliance/Chart.yaml")), complianceVersion)

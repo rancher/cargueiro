@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/rancher/cargueiro/internal/chart"
 )
 
 func TestGenerateHelmImages(t *testing.T) {
@@ -142,7 +144,7 @@ func TestGenerateHelmImages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values)
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, nil)
 
 			require.Empty(t, problems)
 			require.Equal(t, tt.wantChanged, changed)
@@ -155,12 +157,84 @@ func TestGenerateHelmImages(t *testing.T) {
 	}
 }
 
+func TestGenerateHelmImagesWithDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotations  map[string]string
+		values       map[string]any
+		dependencies map[string]*chart.Files
+		want         string
+		wantChanged  bool
+	}{
+		{
+			name:        "an image in a subchart gets a dependency entry",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want:        "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: true,
+		},
+		{
+			name:        "the chart's own images come before the subchart's",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"image": map[string]any{"repository": "rancher/top", "tag": "v1"},
+			},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want: "- name: top\n  image: rancher/top:v1\n" +
+				"- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: true,
+		},
+		{
+			name:        "an image a nested subchart already lists is not added again",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {
+					Dependencies: map[string]*chart.Files{
+						"nested": {Values: map[string]any{"image": map[string]any{"repository": "rancher/nested", "tag": "v1"}}},
+					},
+				},
+			},
+			want:        "- name: nested\n  image: rancher/nested:v1\n  dependency: sub/nested\n",
+			wantChanged: true,
+		},
+		{
+			name: "a subchart image the annotation already lists is not added again",
+			annotations: map[string]string{
+				"helm.sh/images": "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			},
+			values: map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want:        "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, tt.dependencies)
+
+			require.Empty(t, problems)
+			require.Equal(t, tt.wantChanged, changed)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestGenerateHelmImagesRefuses(t *testing.T) {
 	tests := []struct {
-		name        string
-		annotations map[string]string
-		values      map[string]any
-		want        []string
+		name         string
+		annotations  map[string]string
+		values       map[string]any
+		dependencies map[string]*chart.Files
+		want         []string
 	}{
 		{
 			name:        "the tag latest",
@@ -241,7 +315,7 @@ func TestGenerateHelmImagesRefuses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values)
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, tt.dependencies)
 
 			require.Equal(t, tt.want, problems)
 			require.Empty(t, got)

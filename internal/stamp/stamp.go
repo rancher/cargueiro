@@ -81,7 +81,7 @@ func Build(cfg *rules.Config, dir string, opts Options) (*Plan, error) {
 		return nil, err
 	}
 
-	value, changed, problems := annotations.GenerateHelmImages(files.Annotations, files.Values)
+	value, changed, problems := annotations.GenerateHelmImages(files.Annotations, files.Values, files.Dependencies)
 	if len(problems) > 0 {
 		return nil, errors.New(strings.Join(problems, "\n"))
 	}
