@@ -102,6 +102,16 @@ func findRepoRoot() (string, error) {
 	}
 }
 
+// Binary returns the path of the cargueiro binary under test, for a test that
+// runs it through another program.
+func Binary(t *testing.T) string {
+	t.Helper()
+
+	bin := os.Getenv(binEnv)
+	require.NotEmpty(t, bin, "%s is unset: run the tests through a TestMain calling harness.Main", binEnv)
+	return bin
+}
+
 // Options tune how a command is run.
 type Options struct {
 	// Dir is the working directory.

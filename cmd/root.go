@@ -13,8 +13,10 @@ import (
 	"github.com/rancher/cargueiro/internal/auth"
 	"github.com/rancher/cargueiro/internal/chart"
 	"github.com/rancher/cargueiro/internal/checkout"
+	"github.com/rancher/cargueiro/internal/importer"
 	"github.com/rancher/cargueiro/internal/logger"
 	"github.com/rancher/cargueiro/internal/oci"
+	"github.com/rancher/cargueiro/internal/release"
 	"github.com/rancher/cargueiro/internal/ship"
 )
 
@@ -45,6 +47,10 @@ type dependencies struct {
 	// auditFetch reads the manifests audit compares the repository with. Nil
 	// reads the registry.
 	auditFetch audit.FetchFunc
+	// newImportRegistry builds the registry import reads and pushes to.
+	newImportRegistry importRegistryFactory
+	// newReleaseRegistry builds the registry release reads from and copies to.
+	newReleaseRegistry releaseRegistryFactory
 }
 
 // NewRootCmd builds the root command. Output streams are injected so
@@ -58,12 +64,14 @@ func NewRootCmd(stdout, stderr io.Writer, rules []byte) (*cobra.Command, error) 
 		rules:     rules,
 	}
 	return newRootCmd(stdout, stderr, opts, dependencies{
-		pkg:         chart.Package,
-		newPusher:   newOCIPusher,
-		verifyLogin: oci.VerifyLogin,
-		fetchChart:  oci.FetchChart,
-		listTags:    oci.ListTags,
-		prepare:     ship.Prepare,
+		pkg:                chart.Package,
+		newPusher:          newOCIPusher,
+		verifyLogin:        oci.VerifyLogin,
+		fetchChart:         oci.FetchChart,
+		listTags:           oci.ListTags,
+		newImportRegistry:  importer.NewRegistry,
+		newReleaseRegistry: release.NewRegistry,
+		prepare:            ship.Prepare,
 		verifyCheckout: func(ctx context.Context, dir, branch string) error {
 			return checkout.Verify(ctx, dir, branch, checkout.Git)
 		},
@@ -133,11 +141,15 @@ func newRootCmd(stdout, stderr io.Writer, opts *rootOptions, deps dependencies) 
 	if err != nil {
 		return nil, err
 	}
-	importCmd, err := newImportCmd(opts)
+	importCmd, err := newImportCmd(opts, deps.newImportRegistry)
 	if err != nil {
 		return nil, err
 	}
-	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd)
+	releaseCmd, err := newReleaseCmd(opts, deps.newReleaseRegistry)
+	if err != nil {
+		return nil, err
+	}
+	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd, releaseCmd)
 
 	return root, nil
 }

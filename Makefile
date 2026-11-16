@@ -98,6 +98,7 @@ lint-sh: ## Lint the scripts in tools/scripts with shellcheck
 
 test-sh: ## Test the helper scripts in tools/scripts
 	tools/scripts/mise-version_test.sh
+	tools/scripts/legacy-import_test.sh
 
 fmt: ## Format code with golangci-lint (PKG=./path to scope)
 	golangci-lint fmt $(PKG)

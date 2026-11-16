@@ -60,7 +60,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`check archive`](cmd/docs/check-archive.md) | Check one packaged chart (.tgz) against the chart rules. |
 | [`check chart`](cmd/docs/check-chart.md) | Check one chart directory against the chart rules. |
 | [`check oci`](cmd/docs/check-oci.md) | Check one chart in an OCI registry against the chart rules. |
-| [`import`](cmd/docs/import.md) | Report the versions of the old system that are to be imported into a charts repository. |
+| [`import`](cmd/docs/import.md) | Import the versions of the old system into a charts repository, as legacy entries. |
 | [`index`](cmd/docs/index.md) | Write the `index.yaml` of a charts repository from its `entries/`. |
 | [`list`](cmd/docs/list.md) | List the versions of a chart in an OCI registry, newest first. |
 | [`package`](cmd/docs/package.md) | Package a Helm chart into a .tgz archive. |
@@ -68,6 +68,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`registry`](cmd/docs/registry.md) | Manage the registry login cargueiro saves. |
 | [`registry login`](cmd/docs/registry-login.md) | Save credentials and connection settings for a registry. |
 | [`registry logout`](cmd/docs/registry-logout.md) | Forget the saved login. |
+| [`release`](cmd/docs/release.md) | Release the legacy versions from the staging charts repository to the production one. |
 | [`ship`](cmd/docs/ship.md) | Write the entry and the logo of a chart in a registry to a charts repository. |
 | [`stamp`](cmd/docs/stamp.md) | Put the final version and the helm.sh/images annotation on a chart directory. |
 | [`upstream-repos`](cmd/docs/upstream-repos.md) | List the upstream repository of every main chart of the `rancher-charts` edition in `rules.yaml`. |
