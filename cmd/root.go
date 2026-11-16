@@ -133,7 +133,11 @@ func newRootCmd(stdout, stderr io.Writer, opts *rootOptions, deps dependencies) 
 	if err != nil {
 		return nil, err
 	}
-	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd)
+	importCmd, err := newImportCmd(opts)
+	if err != nil {
+		return nil, err
+	}
+	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd)
 
 	return root, nil
 }

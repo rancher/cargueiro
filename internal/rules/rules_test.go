@@ -1144,6 +1144,10 @@ func TestShippedRulesDeprecatedFamilies(t *testing.T) {
 		require.Equal(t, charts, family.Names(), name)
 	}
 
+	alerting, err := cfg.Find("rancher-alerting-drivers")
+	require.NoError(t, err)
+	require.True(t, alerting.PlainVersion, "its versions have no +up part")
+
 	fleet, err := cfg.Family("fleet")
 	require.NoError(t, err)
 	require.False(t, fleet.Deprecated, "a family that is released is not deprecated")
