@@ -6,16 +6,22 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/rancher/cargueiro/internal/chart"
 )
 
 // imageDependenciesAnnotation is the annotation Helm HIP-15 defines for the images a chart uses.
 const imageDependenciesAnnotation = "helm.sh/images"
 
 // ValidateHelmImages checks the helm.sh/images annotation of a chart and the
-// images in its values.yaml, which every chart kind runs. values is the parsed
-// values.yaml.
-func ValidateHelmImages(annotations map[string]string, values map[string]any) []string {
+// images in its values.yaml and in every subchart's, which every chart kind
+// runs. values is the parsed values.yaml, and dependencies the subcharts under
+// charts/, as chart.Load reads them.
+func ValidateHelmImages(annotations map[string]string, values map[string]any, dependencies map[string]*chart.Files) []string {
 	images, valuesProblems := scanValues(values)
+	depImages, depProblems := scanDependencies(dependencies)
+	images = append(images, depImages...)
+	valuesProblems = append(valuesProblems, depProblems...)
 	return collect(
 		checkDependenciesAnnotationStandard(annotations),
 		valuesProblems,

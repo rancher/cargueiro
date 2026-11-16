@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/rancher/cargueiro/internal/chart"
 )
 
 func TestCheckDependenciesAnnotationStandardValid(t *testing.T) {
@@ -549,11 +551,63 @@ func TestValidateHelmImages(t *testing.T) {
 			if tt.annotation != "" {
 				annotations["helm.sh/images"] = tt.annotation
 			}
-			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values)))
+			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values), nil))
 		})
 	}
 
-	require.Empty(t, ValidateHelmImages(nil, nil))
+	require.Empty(t, ValidateHelmImages(nil, nil, nil))
+}
+
+func TestValidateHelmImagesWithDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotation   string
+		values       string
+		dependencies map[string]*chart.Files
+		want         []string
+	}{
+		{
+			name:   "an image in a subchart is listed in the annotation",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			annotation: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+		},
+		{
+			name:   "an image in a subchart that is missing from the annotation",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: image "rancher/sub:v1" is not listed in helm.sh/images`},
+		},
+		{
+			name:   "a problem in a subchart's values.yaml",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "latest"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: "tag" must not be "latest"`},
+		},
+		{
+			name:   "an annotation entry naming a dependency that has no matching image is still accepted",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			annotation: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n- name: other\n  image: rancher/other:v1\n  dependency: unrelated\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			annotations := map[string]string{}
+			if tt.annotation != "" {
+				annotations["helm.sh/images"] = tt.annotation
+			}
+			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values), tt.dependencies))
+		})
+	}
 }
 
 func manyEntries(n int) string {
