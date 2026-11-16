@@ -215,6 +215,46 @@ func TestGenerateHelmImagesWithDependencies(t *testing.T) {
 			want:        "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
 			wantChanged: false,
 		},
+		{
+			name:        "two different tags of the same image get the same name",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"a": map[string]any{"repository": "rancher/kuberlr-kubectl", "tag": "v8.2.0"},
+				"b": map[string]any{"repository": "rancher/kuberlr-kubectl", "tag": "v8.1.0"},
+			},
+			want: "- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.2.0\n" +
+				"- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.1.0\n",
+			wantChanged: true,
+		},
+		{
+			// Seen in the real rancher-monitoring chart: two subcharts vendor
+			// different tags of the same image, whose repository happens to end
+			// with "busybox". They are not a collision: both are added, under the
+			// same name, each with its own dependency.
+			name:        "two subcharts vendoring different tags of the same image both get an entry",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"grafana":  {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.31.1"}}},
+				"hardened": {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.37.0"}}},
+			},
+			want: "- name: mirrored-library-busybox\n  image: rancher/mirrored-library-busybox:1.31.1\n  dependency: grafana\n" +
+				"- name: mirrored-library-busybox\n  image: rancher/mirrored-library-busybox:1.37.0\n  dependency: hardened\n",
+			wantChanged: true,
+		},
+		{
+			name: "a new tag of an image the annotation already lists gets the same name",
+			annotations: map[string]string{
+				"helm.sh/images": "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			},
+			values: map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v2"}}},
+			},
+			want: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n" +
+				"- name: sub\n  image: rancher/sub:v2\n  dependency: sub\n",
+			wantChanged: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,23 +352,9 @@ func TestGenerateHelmImagesRefuses(t *testing.T) {
 			},
 		},
 		{
-			// Seen in the real rancher-monitoring chart: two subcharts vendor
-			// different versions of an image whose repository ends the same way
-			// (.../busybox), so they would both be named "busybox". GenerateHelmImages
-			// cannot guess which one should keep the short name, so it refuses
-			// instead of silently picking one; a chart owner resolves this by adding
-			// one of the two to the annotation by hand, with a name that tells them
-			// apart, before stamping.
-			name:        "two different subcharts vendor different tags of an image with the same short name",
-			annotations: map[string]string{},
-			values:      map[string]any{},
-			dependencies: map[string]*chart.Files{
-				"grafana":  {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.31.1"}}},
-				"hardened": {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.37.0"}}},
-			},
-			want: []string{`charts/hardened/values.yaml image: image "rancher/mirrored-library-busybox:1.37.0" would be named "mirrored-library-busybox", which "rancher/mirrored-library-busybox:1.31.1" has already`},
-		},
-		{
+			// Two subcharts vendoring different tags of the same repository are not
+			// a collision (see TestGenerateHelmImagesWithDependencies): this is a
+			// genuinely different repository that happens to end the same way.
 			name:        "a subchart image collides with a name the chart's own image would take",
 			annotations: map[string]string{},
 			values: map[string]any{

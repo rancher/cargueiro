@@ -17,13 +17,15 @@ import (
 // repository (rancher/fleet-agent gives fleet-agent). An image the annotation
 // already lists is not added again, whatever its name. An image found in a
 // subchart's values.yaml gets a "dependency" naming that subchart, the same way
-// scanDependencies names it.
+// scanDependencies names it. A second image whose repository is the one a name
+// already has, under a different tag, gets its own entry under that same name,
+// the way HIP-15's own Kafka example names two tags of bitnami-shell "shell".
 //
 // It reports problems, and returns no annotation, when values.yaml or a
 // subchart's has an image that is not written with a repository and a tag, or
 // has the tag latest, when the annotation that exists is not valid, and when a
-// name would be used twice for different images. changed is false when there is
-// nothing to add.
+// name would be used by two different repositories. changed is false when
+// there is nothing to add.
 func GenerateHelmImages(annotations map[string]string, values map[string]any, dependencies map[string]*chart.Files) (value string, changed bool, problems []string) {
 	images, valuesProblems := scanValues(values)
 	depImages, depProblems := scanDependencies(dependencies)
@@ -37,7 +39,7 @@ func GenerateHelmImages(annotations map[string]string, values map[string]any, de
 
 	existing := annotations[imageDependenciesAnnotation]
 	listed := make(map[string]bool)
-	nameOwner := make(map[string]string)
+	owners := make(map[string]struct{ repository, image string })
 	if strings.TrimSpace(existing) != "" {
 		entries, err := parseHelmImages(existing)
 		if err != nil {
@@ -46,7 +48,10 @@ func GenerateHelmImages(annotations map[string]string, values map[string]any, de
 		for _, entry := range entries {
 			image := strings.TrimSpace(entry.Image)
 			listed[image] = true
-			nameOwner[strings.TrimSpace(entry.Name)] = image
+			name := strings.TrimSpace(entry.Name)
+			if _, used := owners[name]; !used {
+				owners[name] = struct{ repository, image string }{imageRepository(image), image}
+			}
 		}
 	}
 
@@ -56,13 +61,15 @@ func GenerateHelmImages(annotations map[string]string, values map[string]any, de
 			continue
 		}
 		name := imageName(found.Image)
-		if owner, used := nameOwner[name]; used {
+		repository := imageRepository(found.Image)
+		if owner, used := owners[name]; used && owner.repository != repository {
 			problems = append(problems, valuesProblem(found.source(), found.Path,
-				"image %q would be named %q, which %q has already", found.Image, name, owner))
+				"image %q would be named %q, which %q has already", found.Image, name, owner.image))
 			continue
+		} else if !used {
+			owners[name] = struct{ repository, image string }{repository, found.Image}
 		}
 		listed[found.Image] = true
-		nameOwner[name] = found.Image
 		if found.Dependency == "" {
 			fmt.Fprintf(&added, "- name: %s\n  image: %s\n", name, found.Image)
 		} else {
