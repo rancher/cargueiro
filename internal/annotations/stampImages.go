@@ -89,12 +89,17 @@ func GenerateHelmImages(annotations map[string]string, values map[string]any, de
 // imageName is the last part of the repository of image, written
 // repository:tag.
 func imageName(image string) string {
-	repository := image
-	if colon := strings.LastIndex(image, ":"); colon > strings.LastIndex(image, "/") {
-		repository = image[:colon]
-	}
+	repository := imageRepository(image)
 	if slash := strings.LastIndex(repository, "/"); slash >= 0 {
 		return repository[slash+1:]
 	}
 	return repository
+}
+
+// imageRepository is the repository of image, written repository:tag.
+func imageRepository(image string) string {
+	if colon := strings.LastIndex(image, ":"); colon > strings.LastIndex(image, "/") {
+		return image[:colon]
+	}
+	return image
 }

@@ -30,12 +30,14 @@ func ValidateHelmImages(annotations map[string]string, values map[string]any, de
 }
 
 // checkDependenciesAnnotationStandard reports an annotation that is not a list of entries
-// with a unique name and an image written repository:tag. An absent or blank
+// with a name and an image written repository:tag. An absent or blank
 // annotation is left to checkDependenciesMatch, which compares it with values.yaml.
 //
 // HIP-15 asks for a list of entries with a name and an image. Rancher policy
-// adds that names are unique (HIP-15 allows repeats, as in its Kafka example)
-// and that every image has a tag (HIP-15 only says "a location").
+// adds that every image has a tag (HIP-15 only says "a location"), and that a
+// name is not reused for a different image: two entries may share a name only
+// when they are different tags of the same repository, as in HIP-15's own
+// Kafka example, which names two tags of bitnami-shell "shell".
 func checkDependenciesAnnotationStandard(annotations map[string]string) []string {
 	value := annotations[imageDependenciesAnnotation]
 	if strings.TrimSpace(value) == "" {
@@ -55,7 +57,10 @@ func checkDependenciesAnnotationStandard(annotations map[string]string) []string
 // entry is nil when the list item has nothing in it.
 func checkEntries(entries []*helmImageEntry) (problems []string, malformed []bool) {
 	malformed = make([]bool, len(entries))
-	firstUse := make(map[string]int)
+	firstUse := make(map[string]struct {
+		entry      int
+		repository string
+	})
 	for i, entry := range entries {
 		n := i + 1
 		if entry == nil {
@@ -66,16 +71,22 @@ func checkEntries(entries []*helmImageEntry) (problems []string, malformed []boo
 
 		problemsBefore := len(problems)
 		name, image := strings.TrimSpace(entry.Name), strings.TrimSpace(entry.Image)
+		repository := imageRepository(image)
 
-		first, nameUsed := firstUse[name]
+		owner, nameUsed := firstUse[name]
 		switch {
 		case name == "":
 			problems = append(problems, entryProblem(n, "name must be a non-empty string"))
-		case nameUsed:
-			// Rancher policy: HIP-15 allows the same name more than once.
-			problems = append(problems, entryProblem(n, "name %q is already used by entry %d", name, first))
-		default:
-			firstUse[name] = n
+		case nameUsed && owner.repository != repository:
+			// Rancher policy: a name may repeat for different tags of the same
+			// repository, as in HIP-15's own Kafka example, but not for a
+			// different image.
+			problems = append(problems, entryProblem(n, "name %q is already used by entry %d, for a different image", name, owner.entry))
+		case !nameUsed:
+			firstUse[name] = struct {
+				entry      int
+				repository string
+			}{n, repository}
 		}
 
 		imageErr := helmImage(image)
