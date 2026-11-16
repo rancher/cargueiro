@@ -74,7 +74,7 @@ families:
   - family: rancher-alerting-drivers
     deprecated: true
     charts:
-      - { name: rancher-alerting-drivers, kind: main, edition: rancher-charts }
+      - { name: rancher-alerting-drivers, kind: main, edition: rancher-charts, version: plain }
   - family: rancher-backup
     charts:
       - { name: rancher-backup, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/backup-restore-operator }
