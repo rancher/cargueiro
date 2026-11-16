@@ -12,6 +12,21 @@ type valuesImage struct {
 	Path string
 	// Image is "repository:tag".
 	Image string
+	// Dependency names the subchart this image belongs to, the way it should
+	// appear in the helm.sh/images annotation's "dependency" field: the
+	// subchart's own name, or "parent/child" for one nested further in. Empty
+	// for an image found in the chart's own values.yaml.
+	Dependency string
+}
+
+// source is where image was found, as a problem about it should name it:
+// "values.yaml" for the chart's own, "charts/<name>/values.yaml" for a
+// subchart's.
+func (img valuesImage) source() string {
+	if img.Dependency == "" {
+		return "values.yaml"
+	}
+	return "charts/" + img.Dependency + "/values.yaml"
 }
 
 // scanValues finds the images in values.yaml and reports the ones that are not
@@ -23,12 +38,23 @@ type valuesImage struct {
 // HIP-15 says nothing about values.yaml: reading images from it is Rancher
 // policy.
 func scanValues(values map[string]any) ([]valuesImage, []string) {
-	var scan valuesScan
+	return scanSource(values, "values.yaml", "")
+}
+
+// scanSource is scanValues for a values.yaml read from source, such as
+// "charts/sub/values.yaml" for a subchart's, tagging every image it finds with
+// dependency, as scanDependencies needs.
+func scanSource(values map[string]any, source, dependency string) ([]valuesImage, []string) {
+	scan := valuesScan{source: source, dependency: dependency}
 	scan.walk(values, "")
 	return scan.images, scan.problems
 }
 
 type valuesScan struct {
+	// source and dependency are copied onto every image and problem found, as
+	// scanSource documents.
+	source, dependency string
+
 	images   []valuesImage
 	problems []string
 }
@@ -84,27 +110,27 @@ func (s *valuesScan) imageBlock(block map[string]any, path string) {
 
 	switch {
 	case notString(repository) || notString(tag):
-		s.problems = append(s.problems, valuesProblem(path, `"repository" and "tag" must be strings`))
+		s.problems = append(s.problems, valuesProblem(s.source, path, `"repository" and "tag" must be strings`))
 	case blank(repository) && blank(tag):
 		// No image configured.
 	case blank(tag):
-		s.problems = append(s.problems, valuesProblem(path, `"repository" is set but "tag" is empty`))
+		s.problems = append(s.problems, valuesProblem(s.source, path, `"repository" is set but "tag" is empty`))
 	case blank(repository):
-		s.problems = append(s.problems, valuesProblem(path, `"tag" is set but "repository" is empty`))
+		s.problems = append(s.problems, valuesProblem(s.source, path, `"tag" is set but "repository" is empty`))
 	case tag == latestTag:
-		s.problems = append(s.problems, valuesProblem(path, `"tag" must not be %q`, latestTag))
+		s.problems = append(s.problems, valuesProblem(s.source, path, `"tag" must not be %q`, latestTag))
 	default:
 		repositoryText, _ := repository.(string)
 		tagText, _ := tag.(string)
-		s.images = append(s.images, valuesImage{Path: path, Image: repositoryText + ":" + tagText})
+		s.images = append(s.images, valuesImage{Path: path, Image: repositoryText + ":" + tagText, Dependency: s.dependency})
 	}
 }
 
-func valuesProblem(path, format string, args ...any) string {
+func valuesProblem(source, path, format string, args ...any) string {
 	if path == "" {
 		path = "."
 	}
-	return fmt.Sprintf("values.yaml %s: %s", path, fmt.Sprintf(format, args...))
+	return fmt.Sprintf("%s %s: %s", source, path, fmt.Sprintf(format, args...))
 }
 
 // notString reports a value that is set but is not text, such as a number.
