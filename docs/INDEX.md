@@ -23,9 +23,21 @@ Every version of a chart is seen from three places. The entry, `entries/<chart>/
 
 Nothing else is possible, because a version in none of the three places does not exist. When any version is an error, every version at fault is reported and nothing is decided, so a repository is never half processed.
 
+## Legacy versions
+
+The versions of the old system are not made by the new one: they are imported as they were published. Each is an entry in `legacy/<chart>/<version>.yaml`, which is the entry of the old index with the `digest` of its archive and a URL that points to the registry. A legacy version has no archive in `assets/`, because the registry has it, so none of the checks above that need an archive or the registry apply to it.
+
+| Legacy entry | In the index | Archive | Result |
+|--------------|--------------|---------|--------|
+| yes | no | no | new: to be published, with nothing checked or pulled |
+| yes | yes | no | published: nothing to do |
+| yes | any | yes | error: a legacy version has no archive |
+
+A version that is in `entries/` and in `legacy/` is an error. A legacy entry is read strictly, must be called after its version, and must have the `digest` of its archive and exactly one URL, an `oci://` reference. It cannot be hidden. The chart must be in `rules.yaml`, so that its versions can be put in order. The versions of the two folders are listed together in the index, newest first, and a published legacy line never changes, like any other.
+
 ## The digest
 
-Every line of the index has a `digest`: the sha256 of the archive of its version. It is worked out from the file in `assets/` every time, for a new version from the archive that was pulled. A published archive is never allowed to change, so when the digest of a published line is not the one of its file, `index` fails and says which archive changed and what the two digests are.
+Every line of the index has a `digest`: the sha256 of the archive of its version. It is worked out from the file in `assets/` every time, for a new version from the archive that was pulled. A legacy line has the `digest` that its entry gives, because it has no file. A published archive is never allowed to change, so when the digest of a published line is not the one of its file, `index` fails and says which archive changed and what the two digests are.
 
 ## Order of work
 
