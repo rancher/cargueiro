@@ -101,6 +101,39 @@ func archiveRefs(dir string) ([]Ref, error) {
 	return refs, nil
 }
 
+// LegacyRefs returns the versions that have an entry in legacy/ in the charts
+// repository in dir, from the names of the files only: it does not read them. A
+// repository without legacy/ has none. Anything in legacy/ that is not
+// <chart>/<version>.yaml is an error.
+func LegacyRefs(dir string) ([]Ref, error) {
+	charts, err := os.ReadDir(filepath.Join(dir, LegacyDir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", LegacyDir, err)
+	}
+
+	var refs []Ref
+	for _, c := range charts {
+		if !c.IsDir() {
+			return nil, fmt.Errorf("%s/%s is not a chart directory", LegacyDir, c.Name())
+		}
+		files, err := os.ReadDir(filepath.Join(dir, LegacyDir, c.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read %s/%s: %w", LegacyDir, c.Name(), err)
+		}
+		for _, f := range files {
+			version, ok := strings.CutSuffix(f.Name(), ".yaml")
+			if f.IsDir() || !ok || version == "" {
+				return nil, fmt.Errorf("%s/%s/%s is not an entry: it must be called <version>.yaml", LegacyDir, c.Name(), f.Name())
+			}
+			refs = append(refs, Ref{Chart: c.Name(), Version: version})
+		}
+	}
+	return refs, nil
+}
+
 // archiveVersion returns the version in the file name of the archive of chart.
 func archiveVersion(chart, file string) (string, bool) {
 	rest, ok := strings.CutPrefix(file, chart+"-")
