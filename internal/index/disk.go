@@ -121,9 +121,10 @@ func readState(dir string, e entries, published *repo.IndexFile) (State, error) 
 	}
 
 	return State{
-		Entries:   indexRefs(e.all),
+		Entries:   e.fromEntries,
 		Hidden:    e.hidden,
 		Published: indexRefs(published),
 		Archives:  archives,
+		Legacy:    e.legacy,
 	}, nil
 }
