@@ -168,8 +168,10 @@ func readEntries(cfg *rules.Config, dir string) (entries, error) {
 		return entries{}, err
 	}
 
+	// A repository that has only legacy versions has no entries/ folder: git does not
+	// keep an empty one.
 	charts, err := os.ReadDir(filepath.Join(dir, EntriesDir))
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return entries{}, fmt.Errorf("read entries: %w", err)
 	}
 
