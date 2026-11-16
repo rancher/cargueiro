@@ -5,6 +5,9 @@
 package checking
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -285,6 +288,83 @@ func TestChartWithoutValues(t *testing.T) {
 		require.Zero(t, fromArchive.ExitCode, fromArchive.Stderr)
 		require.Equal(t, fromDirectory.Stdout, fromArchive.Stdout)
 	})
+}
+
+// writeSubchart adds a subchart under dir/charts/<name>, with one image.
+func writeSubchart(t *testing.T, dir, name, repository, tag string) {
+	t.Helper()
+
+	sub := filepath.Join(dir, "charts", name)
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "Chart.yaml"), []byte("name: "+name+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "values.yaml"),
+		[]byte("image:\n  repository: "+repository+"\n  tag: "+tag+"\n"), 0o600))
+}
+
+// TestImageInASubchartIsNotListed checks a chart that has a subchart under
+// charts/ with an image the helm.sh/images annotation does not list: the
+// subchart's image is reported with the subchart's own values.yaml path.
+func TestImageInASubchartIsNotListed(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(harness.FleetSource(t, "fleet-crd"), "Chart.yaml"))
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Chart.yaml"), data, 0o600))
+	writeSubchart(t, dir, "sub", "rancher/sub", "v1")
+
+	got, res := checkJSON(t, dir)
+
+	require.Equal(t, 1, res.ExitCode)
+	require.False(t, got.HIP15Annotations.Valid)
+	require.Equal(t, []string{`charts/sub/values.yaml image: image "rancher/sub:v1" is not listed in helm.sh/images`},
+		got.HIP15Annotations.Errors)
+}
+
+// packArchiveWithSubchart builds a .tgz for the chart whose Chart.yaml is at
+// srcDir, plus a subchart under charts/<subName> with one image, the way Helm
+// writes a packaged dependency (a directory, never a nested .tgz).
+func packArchiveWithSubchart(t *testing.T, srcDir, name, subName, repository, tag string) string {
+	t.Helper()
+
+	chartYAML, err := os.ReadFile(filepath.Join(srcDir, "Chart.yaml"))
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	writeEntry := func(entryName, body string) {
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name: entryName, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body)),
+		}))
+		_, err := tw.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	writeEntry(name+"/Chart.yaml", string(chartYAML))
+	writeEntry(name+"/charts/"+subName+"/Chart.yaml", "name: "+subName+"\n")
+	writeEntry(name+"/charts/"+subName+"/values.yaml",
+		"image:\n  repository: "+repository+"\n  tag: "+tag+"\n")
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+
+	path := filepath.Join(t.TempDir(), name+".tgz")
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+	return path
+}
+
+// TestImageInASubchartArchiveIsNotListed checks a packaged chart archive whose
+// subchart under charts/ has an image the helm.sh/images annotation does not
+// list: check archive reads the subchart the same way check chart does, from
+// inside the .tgz, and reports the same error.
+func TestImageInASubchartArchiveIsNotListed(t *testing.T) {
+	archive := packArchiveWithSubchart(t, harness.FleetSource(t, "fleet-crd"), "fleet-crd", "sub", "rancher/sub", "v1")
+
+	res := checkArchive(t, archive, "--output", "json")
+
+	var got check.Result
+	require.NoError(t, json.Unmarshal([]byte(res.Stdout), &got), "stdout: %s\nstderr: %s", res.Stdout, res.Stderr)
+	require.Equal(t, 1, res.ExitCode)
+	require.False(t, got.HIP15Annotations.Valid)
+	require.Equal(t, []string{`charts/sub/values.yaml image: image "rancher/sub:v1" is not listed in helm.sh/images`},
+		got.HIP15Annotations.Errors)
 }
 
 // TestUpstreamTagLatestIsRefused checks the webhook chart as its upstream keeps

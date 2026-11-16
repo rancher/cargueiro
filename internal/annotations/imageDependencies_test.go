@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/rancher/cargueiro/internal/chart"
 )
 
 func TestCheckDependenciesAnnotationStandardValid(t *testing.T) {
@@ -71,6 +73,10 @@ func TestCheckDependenciesAnnotationStandardValid(t *testing.T) {
 		{
 			name:  "the same image under different names",
 			value: "- name: a\n  image: rancher/x:1\n- name: b\n  image: rancher/x:1\n",
+		},
+		{
+			name:  "the same name for two tags of the same image",
+			value: "- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.2.0\n- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.1.0\n",
 		},
 		{
 			name:  "names differing in case are different",
@@ -236,19 +242,19 @@ func TestCheckDependenciesAnnotationStandardInvalid(t *testing.T) {
 		{
 			name:  "name used twice",
 			value: "- name: shell\n  image: rancher/a:1\n- name: x\n  image: rancher/x:1\n- name: shell\n  image: rancher/b:2\n",
-			want:  []string{key + ` entry 3: name "shell" is already used by entry 1`},
+			want:  []string{key + ` entry 3: name "shell" is already used by entry 1, for a different image`},
 		},
 		{
 			name:  "name used twice, ignoring surrounding space",
 			value: "- name: a\n  image: rancher/a:1\n- name: \" a\"\n  image: rancher/b:1\n",
-			want:  []string{key + ` entry 2: name "a" is already used by entry 1`},
+			want:  []string{key + ` entry 2: name "a" is already used by entry 1, for a different image`},
 		},
 		{
 			name:  "name used three times",
 			value: "- name: a\n  image: rancher/a:1\n- name: a\n  image: rancher/b:1\n- name: a\n  image: rancher/c:1\n",
 			want: []string{
-				key + ` entry 2: name "a" is already used by entry 1`,
-				key + ` entry 3: name "a" is already used by entry 1`,
+				key + ` entry 2: name "a" is already used by entry 1, for a different image`,
+				key + ` entry 3: name "a" is already used by entry 1, for a different image`,
 			},
 		},
 
@@ -384,24 +390,24 @@ func TestCheckDependenciesAnnotationStandardInvalid(t *testing.T) {
 			want: []string{
 				key + ` entry 1: image "rancher/a" must look like "repository:tag"`,
 				formatted(noName, 2),
-				key + ` entry 3: name "a" is already used by entry 1`,
+				key + ` entry 3: name "a" is already used by entry 1, for a different image`,
 			},
 		},
 		{
 			name:  "name used twice and no tag in the same entry",
 			value: "- name: a\n  image: rancher/a:1\n- name: a\n  image: rancher/b\n",
 			want: []string{
-				key + ` entry 2: name "a" is already used by entry 1`,
+				key + ` entry 2: name "a" is already used by entry 1, for a different image`,
 				key + ` entry 2: image "rancher/b" must look like "repository:tag"`,
 			},
 		},
 
-		// The Kafka example of HIP-15 repeats the name "shell". HIP-15 allows
-		// that; Rancher policy does not.
+		// The Kafka example of HIP-15 repeats the name "shell" for two tags of
+		// the same image, docker.io/bitnami/bitnami-shell. Rancher policy allows
+		// that, the same way GenerateHelmImages does.
 		{
 			name:  "HIP-15 Kafka example",
 			value: "- name: kafka\n  image: docker.io/bitnami/kafka:2.8.1-debian-10-r0\n- name: kubectl\n  image: docker.io/bitnami/kubectl:1.19.5-debian-10-r3\n- name: shell\n  image: docker.io/bitnami/bitnami-shell:10-debian-10-r199\n- name: kafka-exporter\n  image: docker.io/bitnami/kafka-exporter:1.4.2-debian-10-r5\n- name: jmx-exporter\n  image: docker.io/bitnami/bitnami/jmx-exporter:0.16.1-debian-10-r66\n- name: zookeeper\n  image: docker.io/bitnami/zookeeper:3.7.0-debian-10-r157\n  dependency: zookeeper\n- name: shell\n  image: docker.io/bitnami/bitnami-shell:10-debian-10-r202\n  dependency: zookeeper\n",
-			want:  []string{key + ` entry 7: name "shell" is already used by entry 3`},
 		},
 	}
 	for _, tt := range tests {
@@ -549,11 +555,63 @@ func TestValidateHelmImages(t *testing.T) {
 			if tt.annotation != "" {
 				annotations["helm.sh/images"] = tt.annotation
 			}
-			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values)))
+			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values), nil))
 		})
 	}
 
-	require.Empty(t, ValidateHelmImages(nil, nil))
+	require.Empty(t, ValidateHelmImages(nil, nil, nil))
+}
+
+func TestValidateHelmImagesWithDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotation   string
+		values       string
+		dependencies map[string]*chart.Files
+		want         []string
+	}{
+		{
+			name:   "an image in a subchart is listed in the annotation",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			annotation: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+		},
+		{
+			name:   "an image in a subchart that is missing from the annotation",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: image "rancher/sub:v1" is not listed in helm.sh/images`},
+		},
+		{
+			name:   "a problem in a subchart's values.yaml",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "latest"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: "tag" must not be "latest"`},
+		},
+		{
+			name:   "an annotation entry naming a dependency that has no matching image is still accepted",
+			values: "replicas: 2\n",
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			annotation: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n- name: other\n  image: rancher/other:v1\n  dependency: unrelated\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			annotations := map[string]string{}
+			if tt.annotation != "" {
+				annotations["helm.sh/images"] = tt.annotation
+			}
+			require.Equal(t, tt.want, ValidateHelmImages(annotations, parseValues(t, tt.values), tt.dependencies))
+		})
+	}
 }
 
 func manyEntries(n int) string {

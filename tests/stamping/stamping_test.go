@@ -266,6 +266,38 @@ func TestStampAChartWithoutValues(t *testing.T) {
 	require.Contains(t, readChartYAML(t, dir), "\nversion: 111.0.0+up0.16.3\n")
 }
 
+// writeSubchart adds a subchart under dir/charts/<name>, with one image.
+func writeSubchart(t *testing.T, dir, name, repository, tag string) {
+	t.Helper()
+
+	sub := filepath.Join(dir, "charts", name)
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "Chart.yaml"), []byte("name: "+name+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "values.yaml"),
+		[]byte("image:\n  repository: "+repository+"\n  tag: "+tag+"\n"), 0o600))
+}
+
+// TestStampAddsImagesFromASubchart stamps a chart that has a subchart of its
+// own under charts/: the generated helm.sh/images annotation lists the
+// subchart's image too, naming the subchart as its "dependency", and the
+// result passes check chart.
+func TestStampAddsImagesFromASubchart(t *testing.T) {
+	dir := copyChart(t, "fleet", "fleet-crd")
+	require.NoError(t, os.Remove(filepath.Join(dir, "values.yaml")))
+	writeSubchart(t, dir, "sub", "rancher/sub", "v1")
+
+	res := stamp(t, dir, "--version", "111.0.0+up0.16.3")
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "version: 110.0.3+up0.16.3 -> 111.0.0+up0.16.3\nhelm.sh/images: added sub\n", res.Stdout)
+	require.Contains(t, readChartYAML(t, dir),
+		"  helm.sh/images: |\n    - name: sub\n      image: rancher/sub:v1\n      dependency: sub\n")
+
+	got, checkRes := checkChart(t, dir)
+	require.Zero(t, checkRes.ExitCode, checkRes.Stderr)
+	require.True(t, got.Valid, "%+v", got)
+}
+
 // deadProxy makes any outbound HTTP(S) request fail locally, to show that stamp
 // never uses the network.
 func deadProxy() []string {

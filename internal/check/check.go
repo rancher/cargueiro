@@ -75,7 +75,7 @@ func Chart(cfg *rules.Config, files *chart.Files, chartVersion string) (*Result,
 			KubeVersion: annotations.KubeVersionAnnotation(files.Annotations),
 		},
 		Annotations:      section(annotations.Validate(rule, files.Annotations)),
-		HIP15Annotations: section(annotations.ValidateHelmImages(files.Annotations, files.Values)),
+		HIP15Annotations: section(annotations.ValidateHelmImages(files.Annotations, files.Values, files.Dependencies)),
 		Version:          section(versionProblems(policy, rule, chartVersion, files.Annotations)),
 	}
 	result.Valid = result.Annotations.Valid && result.HIP15Annotations.Valid && result.Version.Valid

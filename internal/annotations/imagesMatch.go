@@ -44,7 +44,7 @@ func checkDependenciesMatch(annotations map[string]string, images []valuesImage)
 			continue
 		}
 		reported[image.Image] = true
-		problems = append(problems, valuesProblem(image.Path, "image %q is not listed in %s", image.Image, imageDependenciesAnnotation))
+		problems = append(problems, valuesProblem(image.source(), image.Path, "image %q is not listed in %s", image.Image, imageDependenciesAnnotation))
 	}
 
 	_, malformed := checkEntries(entries)

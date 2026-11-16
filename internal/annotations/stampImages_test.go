@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/rancher/cargueiro/internal/chart"
 )
 
 func TestGenerateHelmImages(t *testing.T) {
@@ -142,7 +144,7 @@ func TestGenerateHelmImages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values)
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, nil)
 
 			require.Empty(t, problems)
 			require.Equal(t, tt.wantChanged, changed)
@@ -155,12 +157,124 @@ func TestGenerateHelmImages(t *testing.T) {
 	}
 }
 
+func TestGenerateHelmImagesWithDependencies(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotations  map[string]string
+		values       map[string]any
+		dependencies map[string]*chart.Files
+		want         string
+		wantChanged  bool
+	}{
+		{
+			name:        "an image in a subchart gets a dependency entry",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want:        "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: true,
+		},
+		{
+			name:        "the chart's own images come before the subchart's",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"image": map[string]any{"repository": "rancher/top", "tag": "v1"},
+			},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want: "- name: top\n  image: rancher/top:v1\n" +
+				"- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: true,
+		},
+		{
+			name:        "an image a nested subchart already lists is not added again",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {
+					Dependencies: map[string]*chart.Files{
+						"nested": {Values: map[string]any{"image": map[string]any{"repository": "rancher/nested", "tag": "v1"}}},
+					},
+				},
+			},
+			want:        "- name: nested\n  image: rancher/nested:v1\n  dependency: sub/nested\n",
+			wantChanged: true,
+		},
+		{
+			name: "a subchart image the annotation already lists is not added again",
+			annotations: map[string]string{
+				"helm.sh/images": "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			},
+			values: map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1"}}},
+			},
+			want:        "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			wantChanged: false,
+		},
+		{
+			name:        "two different tags of the same image get the same name",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"a": map[string]any{"repository": "rancher/kuberlr-kubectl", "tag": "v8.2.0"},
+				"b": map[string]any{"repository": "rancher/kuberlr-kubectl", "tag": "v8.1.0"},
+			},
+			want: "- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.2.0\n" +
+				"- name: kuberlr-kubectl\n  image: rancher/kuberlr-kubectl:v8.1.0\n",
+			wantChanged: true,
+		},
+		{
+			// Seen in the real rancher-monitoring chart: two subcharts vendor
+			// different tags of the same image, whose repository happens to end
+			// with "busybox". They are not a collision: both are added, under the
+			// same name, each with its own dependency.
+			name:        "two subcharts vendoring different tags of the same image both get an entry",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"grafana":  {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.31.1"}}},
+				"hardened": {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.37.0"}}},
+			},
+			want: "- name: mirrored-library-busybox\n  image: rancher/mirrored-library-busybox:1.31.1\n  dependency: grafana\n" +
+				"- name: mirrored-library-busybox\n  image: rancher/mirrored-library-busybox:1.37.0\n  dependency: hardened\n",
+			wantChanged: true,
+		},
+		{
+			name: "a new tag of an image the annotation already lists gets the same name",
+			annotations: map[string]string{
+				"helm.sh/images": "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n",
+			},
+			values: map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v2"}}},
+			},
+			want: "- name: sub\n  image: rancher/sub:v1\n  dependency: sub\n" +
+				"- name: sub\n  image: rancher/sub:v2\n  dependency: sub\n",
+			wantChanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, tt.dependencies)
+
+			require.Empty(t, problems)
+			require.Equal(t, tt.wantChanged, changed)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestGenerateHelmImagesRefuses(t *testing.T) {
 	tests := []struct {
-		name        string
-		annotations map[string]string
-		values      map[string]any
-		want        []string
+		name         string
+		annotations  map[string]string
+		values       map[string]any
+		dependencies map[string]*chart.Files
+		want         []string
 	}{
 		{
 			name:        "the tag latest",
@@ -237,11 +351,25 @@ func TestGenerateHelmImagesRefuses(t *testing.T) {
 				`values.yaml b: "repository" is set but "tag" is empty`,
 			},
 		},
+		{
+			// Two subcharts vendoring different tags of the same repository are not
+			// a collision (see TestGenerateHelmImagesWithDependencies): this is a
+			// genuinely different repository that happens to end the same way.
+			name:        "a subchart image collides with a name the chart's own image would take",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"image": map[string]any{"repository": "rancher/other/busybox", "tag": "v1"},
+			},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/busybox", "tag": "v2"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: image "rancher/busybox:v2" would be named "busybox", which "rancher/other/busybox:v1" has already`},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values)
+			got, changed, problems := GenerateHelmImages(tt.annotations, tt.values, tt.dependencies)
 
 			require.Equal(t, tt.want, problems)
 			require.Empty(t, got)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -23,6 +24,11 @@ type Files struct {
 	Metadata    Metadata
 	Annotations map[string]string
 	Values      map[string]any
+	// Dependencies holds every subchart under charts/, keyed by its own chart
+	// name, read recursively so a subchart's own charts/ is reached through its
+	// Dependencies. A chart with no charts/ directory, or none readable as a
+	// chart, has none.
+	Dependencies map[string]*Files
 }
 
 // chartYAML is the shape of Chart.yaml that Load reads. Fields it does not
@@ -34,7 +40,8 @@ type chartYAML struct {
 
 // Load reads Chart.yaml and values.yaml from dir. Chart.yaml must exist. A chart
 // without a values.yaml has no values and no images, which is the case of most
-// CRD charts. Both files must be valid YAML. Nothing else in dir is read.
+// CRD charts. Both files must be valid YAML. Load also reads the subcharts
+// under dir/charts, as Dependencies; nothing else in dir is read.
 func Load(dir string) (*Files, error) {
 	chartPath := filepath.Join(dir, "Chart.yaml")
 	chartData, err := readFile(chartPath)
@@ -47,7 +54,66 @@ func Load(dir string) (*Files, error) {
 		return nil, err
 	}
 
-	return newFiles(chartPath, chartData, valuesPath, valuesData)
+	files, err := newFiles(chartPath, chartData, valuesPath, valuesData)
+	if err != nil {
+		return nil, err
+	}
+
+	deps, err := loadDependencies(filepath.Join(dir, "charts"))
+	if err != nil {
+		return nil, err
+	}
+	files.Dependencies = deps
+	return files, nil
+}
+
+// loadDependencies reads every subchart under chartsDir, keyed by its own
+// chart name (from its Chart.yaml), not by the name of its directory or
+// archive, so a dependency is named the same way whether it is vendored as a
+// directory or as a packaged .tgz. A subchart kept as a directory is read like
+// any other chart, recursively, so its own charts/ is reached through its
+// Dependencies. A subchart kept as a packaged .tgz is read with LoadArchive,
+// which reads its own charts/ too. Anything else there, such as a .prov file,
+// is ignored. A missing chartsDir has no dependencies.
+func loadDependencies(chartsDir string) (map[string]*Files, error) {
+	entries, err := os.ReadDir(chartsDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", chartsDir, err)
+	}
+
+	deps := make(map[string]*Files)
+	for _, entry := range entries {
+		var sub *Files
+		switch {
+		case entry.IsDir():
+			sub, err = Load(filepath.Join(chartsDir, entry.Name()))
+		case strings.HasSuffix(entry.Name(), ".tgz"):
+			sub, err = loadDependencyArchive(filepath.Join(chartsDir, entry.Name()))
+		default:
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read dependency %s: %w", entry.Name(), err)
+		}
+		deps[sub.Metadata.Name] = sub
+	}
+	if len(deps) == 0 {
+		return nil, nil
+	}
+	return deps, nil
+}
+
+// loadDependencyArchive reads a subchart packaged as a .tgz at path.
+func loadDependencyArchive(path string) (*Files, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	return LoadArchive(f)
 }
 
 // errNotFound is wrapped by the error for a file that does not exist.

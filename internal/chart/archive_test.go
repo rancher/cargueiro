@@ -111,7 +111,7 @@ func TestLoadArchive(t *testing.T) {
 			wantValues: map[string]any{"a": 1},
 		},
 		{
-			name: "the same names in a subchart are ignored",
+			name: "a subchart under charts/ is not mistaken for the chart's own files",
 			entries: []entry{
 				{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
 				{name: "fleet/charts/sub/values.yaml", body: "sub: true\n"},
@@ -149,6 +149,59 @@ func TestLoadArchive(t *testing.T) {
 			require.Equal(t, tt.wantValues, got.Values)
 		})
 	}
+}
+
+func TestLoadArchiveReadsDependencies(t *testing.T) {
+	got, err := LoadArchive(bytes.NewReader(buildArchive(t, []entry{
+		{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+		{name: "fleet/values.yaml", body: "a: 1\n"},
+		{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
+		{name: "fleet/charts/sub/values.yaml",
+			body: "image:\n  repository: rancher/sub\n  tag: v1\n"},
+	})))
+
+	require.NoError(t, err)
+	require.Contains(t, got.Dependencies, "sub")
+	require.Equal(t, "sub", got.Dependencies["sub"].Metadata.Name)
+	require.Equal(t, map[string]any{
+		"image": map[string]any{"repository": "rancher/sub", "tag": "v1"},
+	}, got.Dependencies["sub"].Values)
+}
+
+func TestLoadArchiveReadsASubchartNestedInsideASubchart(t *testing.T) {
+	got, err := LoadArchive(bytes.NewReader(buildArchive(t, []entry{
+		{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+		{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
+		{name: "fleet/charts/sub/charts/nested/Chart.yaml", body: "name: nested\n"},
+		{name: "fleet/charts/sub/charts/nested/values.yaml",
+			body: "image:\n  repository: rancher/nested\n  tag: v2\n"},
+	})))
+
+	require.NoError(t, err)
+	require.Contains(t, got.Dependencies, "sub")
+	require.Contains(t, got.Dependencies["sub"].Dependencies, "nested")
+	require.Equal(t, map[string]any{
+		"image": map[string]any{"repository": "rancher/nested", "tag": "v2"},
+	}, got.Dependencies["sub"].Dependencies["nested"].Values)
+}
+
+func TestLoadArchiveWithNoChartsDirectoryHasNoDependencies(t *testing.T) {
+	got, err := LoadArchive(bytes.NewReader(buildArchive(t, []entry{
+		{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+	})))
+
+	require.NoError(t, err)
+	require.Nil(t, got.Dependencies)
+}
+
+func TestLoadArchiveSkipsASubchartWithNoChartYAML(t *testing.T) {
+	got, err := LoadArchive(bytes.NewReader(buildArchive(t, []entry{
+		{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+		{name: "fleet/charts/sub/values.yaml", body: "a: 1\n"},
+	})))
+
+	require.NoError(t, err)
+	require.Nil(t, got.Dependencies)
 }
 
 func TestLoadArchiveRejects(t *testing.T) {
@@ -226,6 +279,42 @@ func TestLoadArchiveRejects(t *testing.T) {
 			wantErr: "fleet/values.yaml is larger than 64 bytes",
 		},
 		{
+			name: "a subchart's Chart.yaml twice",
+			data: func(t *testing.T) []byte {
+				return buildArchive(t, []entry{
+					{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+					{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
+					{name: "fleet/charts/sub/Chart.yaml", body: "name: other\n"},
+				})
+			},
+			lim:     defaultLimits(),
+			wantErr: "fleet/charts/sub/Chart.yaml appears twice in the archive",
+		},
+		{
+			name: "a subchart's values.yaml over the limit",
+			data: func(t *testing.T) []byte {
+				return buildArchive(t, []entry{
+					{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+					{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
+					{name: "fleet/charts/sub/values.yaml", body: "a: " + strings.Repeat("x", 100) + "\n"},
+				})
+			},
+			lim:     small,
+			wantErr: "fleet/charts/sub/values.yaml is larger than 64 bytes",
+		},
+		{
+			name: "a subchart's values.yaml is not valid YAML",
+			data: func(t *testing.T) []byte {
+				return buildArchive(t, []entry{
+					{name: "fleet/Chart.yaml", body: "name: fleet\n"},
+					{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
+					{name: "fleet/charts/sub/values.yaml", body: "a: [\n"},
+				})
+			},
+			lim:     defaultLimits(),
+			wantErr: "parse charts/sub/values.yaml",
+		},
+		{
 			name: "an archive that is too large once decompressed",
 			data: func(t *testing.T) []byte {
 				return buildArchive(t, []entry{
@@ -298,7 +387,7 @@ func TestArchiveChartYAML(t *testing.T) {
 			},
 		},
 		{
-			name: "the same name in a subchart is ignored",
+			name: "a subchart's Chart.yaml is not mistaken for the chart's own",
 			entries: []entry{
 				{name: "fleet/charts/sub/Chart.yaml", body: "name: sub\n"},
 				{name: "fleet/Chart.yaml", body: chartYAML},
