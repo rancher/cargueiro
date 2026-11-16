@@ -1061,3 +1061,18 @@ func TestShippedRulesFamilies(t *testing.T) {
 	require.Equal(t, []string{"fleet", "fleet-agent", "fleet-crd"}, fleet.Names())
 	require.Equal(t, KindMain, fleet.Main().Kind)
 }
+
+// The major of the charts of Rancher 2.N is 95+N, from 2.10, whose charts are the
+// oldest the old system keeps, to the newest Rancher the file knows.
+func TestShippedRulesMajorsFollowTheRancherMinor(t *testing.T) {
+	data, err := os.ReadFile("../../rules.yaml")
+	require.NoError(t, err)
+	cfg, err := Parse(data)
+	require.NoError(t, err)
+
+	majors := cfg.Versions().Majors
+	for minor := 10; minor <= 19; minor++ {
+		require.Equal(t, 95+minor, majors[fmt.Sprintf("2.%d", minor)], "Rancher 2.%d", minor)
+	}
+	require.NotContains(t, majors, "2.9", "nothing before 2.10 is imported")
+}
