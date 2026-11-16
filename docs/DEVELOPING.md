@@ -213,7 +213,7 @@ The `helm.sh/images` annotation follows [Helm HIP-15](https://github.com/helm/co
 |------|--------|
 | The value is a YAML list; each entry has a `name` and an `image`; other properties are allowed | HIP-15 |
 | `dependency` is optional and names the subchart an image belongs to | HIP-15 |
-| `name` is unique in the list | Rancher policy (HIP-15 allows repeats) |
+| `name` is not reused for a different image; it may repeat for two tags of the same repository, as HIP-15's own Kafka example does | Rancher policy |
 | `image` is written `repository:tag` | Rancher policy (HIP-15 only says "a location") |
 | An image in `values.yaml` is a map with a `repository` key. It needs a non-empty string `repository` and `tag` (quote a numeric tag: `tag: 1.10` is rejected); both empty means no image | Rancher policy |
 | A string value under any key, including one called `image`, is not an image and is ignored | Rancher policy |
