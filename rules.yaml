@@ -12,7 +12,8 @@
 #
 # A family may say deprecated: true: its charts are kept for the versions that were
 # released, and no new one is expected. It is a marker, and nothing refuses a
-# deprecated chart yet.
+# deprecated chart yet. The deprecated families here are the ones of the old system
+# that have versions for Rancher 2.10 and later, which are imported as they are.
 #
 # A main chart may say upstream, the address of the repository that releases it,
 # as https://github.com/<organization>/<repository>. It is optional, and a crd or
@@ -43,6 +44,14 @@ families:
       - { name: fleet, kind: main, edition: rancher-charts, icon: skip, upstream: https://github.com/rancher/fleet }
       - { name: fleet-agent, kind: extra, edition: rancher-charts }
       - { name: fleet-crd, kind: crd, edition: rancher-charts }
+  - family: harvester-cloud-provider
+    deprecated: true
+    charts:
+      - { name: harvester-cloud-provider, kind: main, edition: rancher-charts }
+  - family: harvester-csi-driver
+    deprecated: true
+    charts:
+      - { name: harvester-csi-driver, kind: main, edition: rancher-charts }
   - family: harvester-rbac
     charts:
       - { name: harvester-rbac, kind: main, edition: rancher-charts, icon: skip, upstream: https://github.com/harvester/charts }
@@ -62,14 +71,27 @@ families:
     charts:
       - { name: rancher-aks-operator, kind: main, edition: rancher-charts, icon: skip, upstream: https://github.com/rancher/aks-operator }
       - { name: rancher-aks-operator-crd, kind: crd, edition: rancher-charts }
+  - family: rancher-alerting-drivers
+    deprecated: true
+    charts:
+      - { name: rancher-alerting-drivers, kind: main, edition: rancher-charts }
   - family: rancher-backup
     charts:
       - { name: rancher-backup, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/backup-restore-operator }
       - { name: rancher-backup-crd, kind: crd, edition: rancher-charts }
+  - family: rancher-cis-benchmark
+    deprecated: true
+    charts:
+      - { name: rancher-cis-benchmark, kind: main, edition: rancher-charts }
+      - { name: rancher-cis-benchmark-crd, kind: crd, edition: rancher-charts }
   - family: rancher-compliance
     charts:
       - { name: rancher-compliance, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/compliance-operator }
       - { name: rancher-compliance-crd, kind: crd, edition: rancher-charts }
+  - family: rancher-csp-adapter
+    deprecated: true
+    charts:
+      - { name: rancher-csp-adapter, kind: main, edition: rancher-charts }
   - family: rancher-eks-operator
     charts:
       - { name: rancher-eks-operator, kind: main, edition: rancher-charts, icon: skip, upstream: https://github.com/rancher/eks-operator }
@@ -78,6 +100,10 @@ families:
     charts:
       - { name: rancher-gke-operator, kind: main, edition: rancher-charts, icon: skip, upstream: https://github.com/rancher/gke-operator }
       - { name: rancher-gke-operator-crd, kind: crd, edition: rancher-charts }
+  - family: rancher-istio
+    deprecated: true
+    charts:
+      - { name: rancher-istio, kind: main, edition: rancher-charts }
   - family: rancher-logging
     charts:
       - { name: rancher-logging, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/ob-team-charts }

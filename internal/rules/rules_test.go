@@ -1119,3 +1119,32 @@ func TestShippedRulesMajorsFollowTheRancherMinor(t *testing.T) {
 	}
 	require.NotContains(t, majors, "2.9", "nothing before 2.10 is imported")
 }
+
+// The families of the old system that have versions for Rancher 2.10 and later,
+// and are not released any more. The two harvester charts are not one family.
+func TestShippedRulesDeprecatedFamilies(t *testing.T) {
+	data, err := os.ReadFile("../../rules.yaml")
+	require.NoError(t, err)
+	cfg, err := Parse(data)
+	require.NoError(t, err)
+
+	want := map[string][]string{
+		"harvester-cloud-provider": {"harvester-cloud-provider"},
+		"harvester-csi-driver":     {"harvester-csi-driver"},
+		"rancher-alerting-drivers": {"rancher-alerting-drivers"},
+		"rancher-cis-benchmark":    {"rancher-cis-benchmark", "rancher-cis-benchmark-crd"},
+		"rancher-csp-adapter":      {"rancher-csp-adapter"},
+		"rancher-istio":            {"rancher-istio"},
+	}
+	for name, charts := range want {
+		family, err := cfg.Family(name)
+		require.NoError(t, err, name)
+		require.True(t, family.Deprecated, name)
+		require.Equal(t, EditionRancherCharts, family.Edition, name)
+		require.Equal(t, charts, family.Names(), name)
+	}
+
+	fleet, err := cfg.Family("fleet")
+	require.NoError(t, err)
+	require.False(t, fleet.Deprecated, "a family that is released is not deprecated")
+}
