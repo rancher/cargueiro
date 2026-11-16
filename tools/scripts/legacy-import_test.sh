@@ -229,11 +229,68 @@ FAKE_STUCK=1 run "$repo" --family fleet --no-index
 expect "stuck exit" 1 "$status"
 expect_contains "stuck says what" "left to import: fleet 2.10" "$out"
 
-# --- arguments
-run "$work/dry"
+# --- the old system is cloned when --source is not given, and kept up to date
+# upstream stands for rancher/charts: the branch has index.yaml and assets/ and a big
+# file that is not read, and another branch the script must not take
+upstream="$work/upstream"
+new_repo "$upstream"
+git -C "$upstream" checkout -q -b release-v2.15
+echo "apiVersion: v1" >"$upstream/index.yaml"
+mkdir -p "$upstream/assets" "$upstream/packages"
+echo archive >"$upstream/assets/a.tgz"
+echo not-read >"$upstream/packages/big"
+git -C "$upstream" add -A
+git -C "$upstream" commit -q -m "release 1"
+git -C "$upstream" checkout -q -b other
+echo other >"$upstream/index.yaml"
+git -C "$upstream" commit -q -am "other branch"
+git -C "$upstream" checkout -q release-v2.15
+cache="$work/cache"
+repo="$work/cloned"
+new_repo "$repo"
 status=0
-"$script" >/dev/null 2>&1 || status=$?
-expect "no --source fails" 1 "$status"
+out=$("$script" --source-url "$upstream" --source-cache "$cache" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run 2>&1) || status=$?
+expect "clone exit" 0 "$status"
+expect_contains "it says the commit it read" "source: " "$out"
+expect "it has the index and the assets" "apiVersion: v1 archive" "$(cat "$cache/index.yaml" "$cache/assets/a.tgz" | paste -sd' ' -)"
+[ ! -e "$cache/packages" ] || fail "only index.yaml and assets/ are checked out"
+expect "the branch is release-v2.15" "apiVersion: v1" "$(cat "$cache/index.yaml")"
+
+# a new commit upstream is the one the next run reads
+echo "apiVersion: v2" >"$upstream/index.yaml"
+git -C "$upstream" commit -q -am "release 2"
+status=0
+"$script" --source-url "$upstream" --source-cache "$cache" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run >/dev/null 2>&1 || status=$?
+expect "update exit" 0 "$status"
+expect "the latest commit is read" "apiVersion: v2" "$(cat "$cache/index.yaml")"
+
+# the branch is the one given
+status=0
+"$script" --source-url "$upstream" --source-branch other --source-cache "$work/cache-other" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run >/dev/null 2>&1 || status=$?
+expect "other branch exit" 0 "$status"
+expect "--source-branch is used" "other" "$(cat "$work/cache-other/index.yaml")"
+
+# without --source-cache a workflow has RUNNER_TEMP, and a laptop has the cache folder
+status=0
+RUNNER_TEMP="$work/runner" "$script" --source-url "$upstream" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run >/dev/null 2>&1 || status=$?
+expect "RUNNER_TEMP exit" 0 "$status"
+[ -f "$work/runner/legacy-source/index.yaml" ] || fail "the clone is kept in RUNNER_TEMP"
+status=0
+env -u RUNNER_TEMP XDG_CACHE_HOME="$work/xdg" "$script" --source-url "$upstream" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run >/dev/null 2>&1 || status=$?
+expect "XDG_CACHE_HOME exit" 0 "$status"
+[ -f "$work/xdg/cargueiro/legacy-source/index.yaml" ] || fail "the clone is kept in the cache folder"
+
+# --source is used as it is: nothing is cloned
+status=0
+out=$("$script" --source "$source_dir" --source-url "$work/nowhere" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" --dry-run 2>&1) || status=$?
+expect "--source exit" 0 "$status"
+case $out in *fetching*) fail "--source does not clone" ;; esac
+
+# --- arguments
+status=0
+out=$("$script" --source-url "$work/nowhere" --source-cache "$work/cache-bad" --repo "$repo" --rules "$work/rules.yaml" --cargueiro "$work/bin/cargueiro" 2>&1) || status=$?
+expect "a source that cannot be cloned fails" 1 "$status"
+expect_contains "and says which" "cannot fetch release-v2.15 of $work/nowhere" "$out"
 status=0
 "$script" --source "$work/nowhere" >/dev/null 2>&1 || status=$?
 expect "a source without an index fails" 1 "$status"
