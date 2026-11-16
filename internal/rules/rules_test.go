@@ -371,6 +371,49 @@ families:
 	require.Equal(t, "https://github.com/rancher/zeta", got[1].Upstream)
 }
 
+func TestParseReadsADeprecatedFamily(t *testing.T) {
+	const in = `
+kinds: {main: {}, crd: {}}
+families:
+  - family: old
+    deprecated: true
+    charts:
+      - {name: old, kind: main, edition: rancher-charts}
+      - {name: old-crd, kind: crd, edition: rancher-charts}
+  - family: current
+    charts:
+      - {name: current, kind: main, edition: rancher-charts}
+  - family: explicit
+    deprecated: false
+    charts:
+      - {name: explicit, kind: main, edition: rancher-charts}
+`
+	cfg, err := Parse([]byte(in + registriesAndVersions))
+	require.NoError(t, err)
+
+	for name, want := range map[string]bool{"old": true, "old-crd": true, "current": false, "explicit": false} {
+		chart, err := cfg.Find(name)
+		require.NoError(t, err)
+		require.Equal(t, want, chart.Deprecated, name)
+	}
+	require.True(t, mustFamily(t, cfg, "old").Deprecated, "the whole family")
+	require.False(t, mustFamily(t, cfg, "current").Deprecated)
+}
+
+func TestParseRejectsADeprecatedThatIsNotABool(t *testing.T) {
+	const in = `
+kinds: {main: {}}
+families:
+  - family: a
+    deprecated: sometimes
+    charts:
+      - {name: a, kind: main, edition: rancher-charts}
+`
+	cfg, err := Parse([]byte(in + registriesAndVersions))
+	require.ErrorContains(t, err, "parse rules")
+	require.Nil(t, cfg)
+}
+
 func mustFamily(t *testing.T, cfg *Config, name string) Family {
 	t.Helper()
 
@@ -1060,4 +1103,48 @@ func TestShippedRulesFamilies(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"fleet", "fleet-agent", "fleet-crd"}, fleet.Names())
 	require.Equal(t, KindMain, fleet.Main().Kind)
+}
+
+// The major of the charts of Rancher 2.N is 95+N, from 2.10, whose charts are the
+// oldest the old system keeps, to the newest Rancher the file knows.
+func TestShippedRulesMajorsFollowTheRancherMinor(t *testing.T) {
+	data, err := os.ReadFile("../../rules.yaml")
+	require.NoError(t, err)
+	cfg, err := Parse(data)
+	require.NoError(t, err)
+
+	majors := cfg.Versions().Majors
+	for minor := 10; minor <= 19; minor++ {
+		require.Equal(t, 95+minor, majors[fmt.Sprintf("2.%d", minor)], "Rancher 2.%d", minor)
+	}
+	require.NotContains(t, majors, "2.9", "nothing before 2.10 is imported")
+}
+
+// The families of the old system that have versions for Rancher 2.10 and later,
+// and are not released any more. The two harvester charts are not one family.
+func TestShippedRulesDeprecatedFamilies(t *testing.T) {
+	data, err := os.ReadFile("../../rules.yaml")
+	require.NoError(t, err)
+	cfg, err := Parse(data)
+	require.NoError(t, err)
+
+	want := map[string][]string{
+		"harvester-cloud-provider": {"harvester-cloud-provider"},
+		"harvester-csi-driver":     {"harvester-csi-driver"},
+		"rancher-alerting-drivers": {"rancher-alerting-drivers"},
+		"rancher-cis-benchmark":    {"rancher-cis-benchmark", "rancher-cis-benchmark-crd"},
+		"rancher-csp-adapter":      {"rancher-csp-adapter"},
+		"rancher-istio":            {"rancher-istio"},
+	}
+	for name, charts := range want {
+		family, err := cfg.Family(name)
+		require.NoError(t, err, name)
+		require.True(t, family.Deprecated, name)
+		require.Equal(t, EditionRancherCharts, family.Edition, name)
+		require.Equal(t, charts, family.Names(), name)
+	}
+
+	fleet, err := cfg.Family("fleet")
+	require.NoError(t, err)
+	require.False(t, fleet.Deprecated, "a family that is released is not deprecated")
 }

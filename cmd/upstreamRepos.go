@@ -24,7 +24,7 @@ func newUpstreamReposCmd(opts *rootOptions) (*cobra.Command, error) {
 			}
 			var mains []rules.Chart
 			for _, chart := range cfg.MainCharts() {
-				if chart.Edition == rules.EditionRancherCharts {
+				if chart.Edition == rules.EditionRancherCharts && !chart.Deprecated {
 					mains = append(mains, chart)
 				}
 			}

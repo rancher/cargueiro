@@ -31,6 +31,9 @@ type Chart struct {
 	// ReleaseName is the expected catalog.cattle.io/release-name. It is the
 	// chart name unless the file says otherwise.
 	ReleaseName string
+	// Deprecated is true when the family of the chart is deprecated: the chart is
+	// kept for the versions that were released, and no new one is expected.
+	Deprecated bool
 	// Upstream is the address of the repository that releases the chart, as
 	// https://github.com/<organization>/<repository>. It is empty when the rules
 	// file does not say.
@@ -130,6 +133,8 @@ type Config struct {
 type Family struct {
 	Name    string
 	Edition string
+	// Deprecated is true when the whole family is deprecated.
+	Deprecated bool
 	// Charts are the charts of the family: the main chart first, then the
 	// others in the order of the rules file.
 	Charts []Chart
@@ -250,8 +255,9 @@ type kindRule struct {
 }
 
 type family struct {
-	Family string      `yaml:"family"`
-	Charts []chartItem `yaml:"charts"`
+	Family     string      `yaml:"family"`
+	Deprecated bool        `yaml:"deprecated"`
+	Charts     []chartItem `yaml:"charts"`
 }
 
 type chartItem struct {
@@ -343,6 +349,7 @@ func indexCharts(f file) (map[string]Chart, error) {
 			if err != nil {
 				return nil, err
 			}
+			chart.Deprecated = fam.Deprecated
 			if chart.Edition != fam.Charts[0].Edition {
 				return nil, fmt.Errorf("parse rules: family %q mixes editions %q and %q",
 					fam.Family, fam.Charts[0].Edition, chart.Edition)
@@ -369,7 +376,7 @@ func indexFamilies(f file, charts map[string]Chart) (map[string]Family, error) {
 			return nil, fmt.Errorf("parse rules: family %q is listed twice", fam.Family)
 		}
 
-		family := Family{Name: fam.Family, Edition: charts[fam.Charts[0].Name].Edition}
+		family := Family{Name: fam.Family, Edition: charts[fam.Charts[0].Name].Edition, Deprecated: fam.Deprecated}
 		var mains []Chart
 		for _, item := range fam.Charts {
 			chart := charts[item.Name]
