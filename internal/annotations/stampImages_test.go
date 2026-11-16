@@ -311,6 +311,34 @@ func TestGenerateHelmImagesRefuses(t *testing.T) {
 				`values.yaml b: "repository" is set but "tag" is empty`,
 			},
 		},
+		{
+			// Seen in the real rancher-monitoring chart: two subcharts vendor
+			// different versions of an image whose repository ends the same way
+			// (.../busybox), so they would both be named "busybox". GenerateHelmImages
+			// cannot guess which one should keep the short name, so it refuses
+			// instead of silently picking one; a chart owner resolves this by adding
+			// one of the two to the annotation by hand, with a name that tells them
+			// apart, before stamping.
+			name:        "two different subcharts vendor different tags of an image with the same short name",
+			annotations: map[string]string{},
+			values:      map[string]any{},
+			dependencies: map[string]*chart.Files{
+				"grafana":  {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.31.1"}}},
+				"hardened": {Values: map[string]any{"image": map[string]any{"repository": "rancher/mirrored-library-busybox", "tag": "1.37.0"}}},
+			},
+			want: []string{`charts/hardened/values.yaml image: image "rancher/mirrored-library-busybox:1.37.0" would be named "mirrored-library-busybox", which "rancher/mirrored-library-busybox:1.31.1" has already`},
+		},
+		{
+			name:        "a subchart image collides with a name the chart's own image would take",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"image": map[string]any{"repository": "rancher/other/busybox", "tag": "v1"},
+			},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/busybox", "tag": "v2"}}},
+			},
+			want: []string{`charts/sub/values.yaml image: image "rancher/busybox:v2" would be named "busybox", which "rancher/other/busybox:v1" has already`},
+		},
 	}
 
 	for _, tt := range tests {
