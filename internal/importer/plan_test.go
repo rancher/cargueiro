@@ -18,6 +18,13 @@ import (
 func writeSource(t *testing.T, versions map[string][]string) string {
 	t.Helper()
 
+	return writeSourceWithIcons(t, versions, nil)
+}
+
+// writeSourceWithIcons is writeSource with the icon of each chart.
+func writeSourceWithIcons(t *testing.T, versions map[string][]string, icons map[string]string) string {
+	t.Helper()
+
 	dir := t.TempDir()
 	idx := &repo.IndexFile{APIVersion: "v1", Entries: map[string]repo.ChartVersions{}}
 	for name, vs := range versions {
@@ -27,7 +34,7 @@ func writeSource(t *testing.T, versions map[string][]string) string {
 			writeFile(t, filepath.Join(dir, rel), string(data))
 			sum := sha256.Sum256(data)
 			idx.Entries[name] = append(idx.Entries[name], &repo.ChartVersion{
-				Metadata: &chart.Metadata{Name: name, Version: v},
+				Metadata: &chart.Metadata{Name: name, Version: v, Icon: icons[name]},
 				URLs:     []string{rel},
 				Digest:   hex.EncodeToString(sum[:]),
 			})
@@ -174,4 +181,64 @@ func TestMakePlanNamesEveryVersionAtFault(t *testing.T) {
 	require.ErrorContains(t, err, "fleet 110.0.3+up0.16.3: the archive")
 	require.ErrorContains(t, err, "fleet 110.0.5+up0.16.5: the archive")
 	require.NotContains(t, err.Error(), "fleet 110.0.4+up0.16.4")
+}
+
+func TestMakePlanLogos(t *testing.T) {
+	source := writeSourceWithIcons(t,
+		map[string][]string{
+			"fleet":       {"110.0.3+up0.16.3", "110.0.4+up0.16.4"},
+			"fleet-agent": {"110.0.3+up0.16.3"},
+			"fleet-crd":   {"110.0.3+up0.16.3"},
+		},
+		map[string]string{
+			"fleet":       "file://assets/logos/fleet.svg",
+			"fleet-agent": "https://charts.rancher.io/assets/logos/fleet-agent.png",
+			"fleet-crd":   "https://avatars2.githubusercontent.com/u/1?s=200&v=4",
+		})
+	writeFile(t, filepath.Join(source, "assets", "logos", "fleet.svg"), "the logo")
+	repoDir := t.TempDir()
+	cfg := loadRules(t)
+
+	t.Run("a logo is copied once, a missing one is named, and another address is left alone", func(t *testing.T) {
+		plan, err := MakePlan(cfg, Options{Source: source, Repo: repoDir}, "fleet", "2.15")
+
+		require.NoError(t, err)
+		require.Equal(t, []Logo{{Name: "fleet.svg", From: filepath.Join(source, "assets", "logos", "fleet.svg")}}, plan.Logos)
+		require.Equal(t, []string{"fleet-agent.png"}, plan.MissingLogos)
+		require.Contains(t, plan.Report(), "copy logo fleet.svg\nmissing logo fleet-agent.png\n")
+	})
+
+	t.Run("a logo the repository has is never replaced", func(t *testing.T) {
+		writeFile(t, filepath.Join(repoDir, "assets", "logos", "fleet.svg"), "another logo")
+
+		plan, err := MakePlan(cfg, Options{Source: source, Repo: repoDir}, "fleet", "2.15")
+
+		require.NoError(t, err)
+		require.Empty(t, plan.Logos)
+		require.Equal(t, []string{"fleet-agent.png"}, plan.MissingLogos)
+	})
+}
+
+func TestLogoName(t *testing.T) {
+	tests := map[string]struct {
+		icon string
+		want string
+		ok   bool
+	}{
+		"a local logo":           {icon: "file://assets/logos/fleet.svg", want: "fleet.svg", ok: true},
+		"a logo that was served": {icon: "https://charts.rancher.io/assets/logos/fleet.svg", want: "fleet.svg", ok: true},
+		"another address":        {icon: "https://avatars2.githubusercontent.com/u/1", ok: false},
+		"no icon":                {icon: "", ok: false},
+		"a folder":               {icon: "file://assets/logos/a/b.svg", ok: false},
+		"a parent":               {icon: "file://assets/logos/..", ok: false},
+		"no name":                {icon: "file://assets/logos/", ok: false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := logoName(tt.icon)
+
+			require.Equal(t, tt.ok, ok)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }

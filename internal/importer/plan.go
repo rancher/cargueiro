@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	repo "helm.sh/helm/v4/pkg/repo/v1"
@@ -40,15 +42,28 @@ type Item struct {
 	Reference string
 }
 
+// Logo is a logo of the source that the repository does not have.
+type Logo struct {
+	Name string
+	// From is the file in the source.
+	From string
+}
+
 // Plan is what an import would do.
 type Plan struct {
 	// Import are the versions that are not in legacy/ yet, by chart in the order of
 	// the family and newest first.
 	Import []Item
+	// Logos are the logos of those versions that the source has and the repository
+	// does not, sorted by name. A logo the repository has is never replaced.
+	Logos []Logo
+	// MissingLogos are the logos that those versions name and the source does not
+	// have, sorted. They are as dead in the source as they will be here.
+	MissingLogos []string
 }
 
-// Report says what the plan does, one version to a line, or that there is
-// nothing to do.
+// Report says what the plan does, one line each: the versions to import, the logos
+// to copy and the logos that are missing, or that there is nothing to do.
 func (p Plan) Report() string {
 	if len(p.Import) == 0 {
 		return "nothing to import\n"
@@ -56,6 +71,12 @@ func (p Plan) Report() string {
 	var report strings.Builder
 	for _, item := range p.Import {
 		fmt.Fprintf(&report, "import %s %s\n", item.Chart, item.Entry.Version)
+	}
+	for _, logo := range p.Logos {
+		fmt.Fprintf(&report, "copy logo %s\n", logo.Name)
+	}
+	for _, name := range p.MissingLogos {
+		fmt.Fprintf(&report, "missing logo %s\n", name)
 	}
 	return report.String()
 }
@@ -107,7 +128,68 @@ func MakePlan(cfg *rules.Config, opts Options, family, minor string) (Plan, erro
 	if len(problems) > 0 {
 		return Plan{}, errors.Join(problems...)
 	}
+	plan.Logos, plan.MissingLogos, err = planLogos(opts, plan.Import)
+	if err != nil {
+		return Plan{}, err
+	}
 	return plan, nil
+}
+
+// logoName returns the name of the logo an icon points to, when it is one that is
+// kept in a charts repository: a local file, or the address it was served from.
+// An icon on any other address is left as it is.
+func logoName(icon string) (string, bool) {
+	prefixes := []string{
+		"file://" + index.AssetsDir + "/logos/",
+		"https://charts.rancher.io/" + index.AssetsDir + "/logos/",
+	}
+	for _, prefix := range prefixes {
+		if name, found := strings.CutPrefix(icon, prefix); found {
+			if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+				return "", false
+			}
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// planLogos works out which logos of the versions to import are to be copied
+// from the source, and which ones the source does not have. A logo that the
+// repository has already is not copied again.
+func planLogos(opts Options, items []Item) ([]Logo, []string, error) {
+	names := make(map[string]struct{})
+	for _, item := range items {
+		if name, ok := logoName(item.Entry.Icon); ok {
+			names[name] = struct{}{}
+		}
+	}
+
+	var logos []Logo
+	var missing []string
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		_, err := os.Lstat(filepath.Join(opts.Repo, index.AssetsDir, "logos", name))
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, fmt.Errorf("logo %s: %w", name, err)
+		}
+
+		from := filepath.Join(opts.Source, index.AssetsDir, "logos", name)
+		info, err := os.Lstat(from)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			missing = append(missing, name)
+		case err != nil:
+			return nil, nil, fmt.Errorf("logo %s: %w", name, err)
+		case !info.Mode().IsRegular():
+			return nil, nil, fmt.Errorf("logo %s: %s is not a regular file", name, from)
+		default:
+			logos = append(logos, Logo{Name: name, From: from})
+		}
+	}
+	return logos, missing, nil
 }
 
 // makeItem checks a version that is to be imported: it is not an entry of the new
