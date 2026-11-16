@@ -124,6 +124,8 @@ Every chart also has an `edition`, `rancher-charts` or `prime-charts`, which say
 
 `push` builds its guard from these. On the SUSE registries named there, a listed chart may only go to the repositories of its edition, anything else is an image dependency that may only go to the image path, and nothing that already exists is overwritten. The check and the upload are separate calls, so only the registry's own immutable tags could close the race between two pushes of the same new tag.
 
+A family may be `deprecated: true`, which says that its charts are kept for the versions that were released and that no new one is expected. `Parse` sets `Family.Deprecated` and the `Deprecated` of each of its charts. It is only a marker: `stamp`, `package`, `push` and `chart-version` do not look at it.
+
 A main chart may also have an `upstream`, the address of the repository that releases it, as `https://github.com/<organization>/<repository>`, with no trailing slash and no `.git`. It is optional, `Parse` refuses it on a `crd` or `extra` chart, which is released from the repository of its main chart, and `Chart.Upstream` has it, empty when the file does not say.
 
 A family is the set of charts that are released together, at one version, such as `fleet`, `fleet-agent` and `fleet-crd`. It has exactly one `main` chart, which sets that version for the others, and `Config.Family` lists its charts with the main chart first. `internal/family.Resolve` takes what a command was given, folders or archives, checks that they are exactly the charts of one family, each once, and puts them in that order. A command that works on a family calls it first.

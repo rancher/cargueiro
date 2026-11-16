@@ -371,6 +371,49 @@ families:
 	require.Equal(t, "https://github.com/rancher/zeta", got[1].Upstream)
 }
 
+func TestParseReadsADeprecatedFamily(t *testing.T) {
+	const in = `
+kinds: {main: {}, crd: {}}
+families:
+  - family: old
+    deprecated: true
+    charts:
+      - {name: old, kind: main, edition: rancher-charts}
+      - {name: old-crd, kind: crd, edition: rancher-charts}
+  - family: current
+    charts:
+      - {name: current, kind: main, edition: rancher-charts}
+  - family: explicit
+    deprecated: false
+    charts:
+      - {name: explicit, kind: main, edition: rancher-charts}
+`
+	cfg, err := Parse([]byte(in + registriesAndVersions))
+	require.NoError(t, err)
+
+	for name, want := range map[string]bool{"old": true, "old-crd": true, "current": false, "explicit": false} {
+		chart, err := cfg.Find(name)
+		require.NoError(t, err)
+		require.Equal(t, want, chart.Deprecated, name)
+	}
+	require.True(t, mustFamily(t, cfg, "old").Deprecated, "the whole family")
+	require.False(t, mustFamily(t, cfg, "current").Deprecated)
+}
+
+func TestParseRejectsADeprecatedThatIsNotABool(t *testing.T) {
+	const in = `
+kinds: {main: {}}
+families:
+  - family: a
+    deprecated: sometimes
+    charts:
+      - {name: a, kind: main, edition: rancher-charts}
+`
+	cfg, err := Parse([]byte(in + registriesAndVersions))
+	require.ErrorContains(t, err, "parse rules")
+	require.Nil(t, cfg)
+}
+
 func mustFamily(t *testing.T, cfg *Config, name string) Family {
 	t.Helper()
 

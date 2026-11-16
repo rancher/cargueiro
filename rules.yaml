@@ -10,6 +10,10 @@
 # A crd or extra chart keeps its icon as it is, and so does a main chart marked
 # icon: skip. Any other chart must have an icon that can be made local.
 #
+# A family may say deprecated: true: its charts are kept for the versions that were
+# released, and no new one is expected. It is a marker, and nothing refuses a
+# deprecated chart yet.
+#
 # A main chart may say upstream, the address of the repository that releases it,
 # as https://github.com/<organization>/<repository>. It is optional, and a crd or
 # extra chart is released from the repository of its main chart.
