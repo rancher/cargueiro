@@ -20,12 +20,12 @@ run 'cargueiro check chart --family fleet tests/data/charts/fleet/src/fleet-crd 
 
 hdr "2. FAILURE: one chart is not valid (a copy where fleet-agent has no annotations)"
 want "all three charts reported, only fleet-agent 'valid: false'; error: the family \"fleet\" is not valid: fleet-agent; exit 1"
-run 'rm -rf .tmp/manual-tests/bad && cp -r tests/data/charts/fleet/src .tmp/manual-tests/bad && sed -i "/catalog.cattle.io/d" .tmp/manual-tests/bad/fleet-agent/Chart.yaml'
+run 'rm -rf .tmp/manual-tests/bad && cp -r tests/data/charts/fleet/src .tmp/manual-tests/bad && sed -i.bak "/catalog.cattle.io/d" .tmp/manual-tests/bad/fleet-agent/Chart.yaml && rm -f .tmp/manual-tests/bad/fleet-agent/Chart.yaml.bak'
 run 'cargueiro check chart --family fleet .tmp/manual-tests/bad/fleet .tmp/manual-tests/bad/fleet-agent .tmp/manual-tests/bad/fleet-crd'
 
 hdr "3. FAILURE: the versions of the family differ (a copy where fleet-agent has another version)"
 want "the three reports, then: error: the charts of the family \"fleet\" do not have the same version, with the version of each chart; exit 1"
-run 'rm -rf .tmp/manual-tests/diff && cp -r tests/data/charts/fleet/src .tmp/manual-tests/diff && sed -i "s/^version: .*/version: 110.0.4+up0.16.4/" .tmp/manual-tests/diff/fleet-agent/Chart.yaml'
+run 'rm -rf .tmp/manual-tests/diff && cp -r tests/data/charts/fleet/src .tmp/manual-tests/diff && sed -i.bak "s/^version: .*/version: 110.0.4+up0.16.4/" .tmp/manual-tests/diff/fleet-agent/Chart.yaml && rm -f .tmp/manual-tests/diff/fleet-agent/Chart.yaml.bak'
 run 'cargueiro check chart --family fleet .tmp/manual-tests/diff/fleet .tmp/manual-tests/diff/fleet-agent .tmp/manual-tests/diff/fleet-crd'
 
 hdr "CLEANUP: take the binary off the PATH and remove the copies"

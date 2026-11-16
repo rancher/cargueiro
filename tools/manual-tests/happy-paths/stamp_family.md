@@ -13,7 +13,7 @@ hdr "SETUP: build the binary of this checkout, put it first on the PATH of this 
 run 'mkdir -p .tmp/manual-tests/bin && go build -o .tmp/manual-tests/bin/cargueiro .'
 run 'PATH="$PWD/.tmp/manual-tests/bin:$PATH"'
 run 'command -v cargueiro && cargueiro version'
-run 'cp -r tests/data/charts/fleet/src .tmp/manual-tests/fleet && sed -i "s/>= 2.15.0-0 < 2.16.0-0/>= 2.17.0-0 < 2.18.0-0/" .tmp/manual-tests/fleet/fleet/Chart.yaml .tmp/manual-tests/fleet/fleet-agent/Chart.yaml'
+run 'cp -r tests/data/charts/fleet/src .tmp/manual-tests/fleet && sed -i.bak "s/>= 2.15.0-0 < 2.16.0-0/>= 2.17.0-0 < 2.18.0-0/" .tmp/manual-tests/fleet/fleet/Chart.yaml .tmp/manual-tests/fleet/fleet-agent/Chart.yaml && rm -f .tmp/manual-tests/fleet/fleet/Chart.yaml.bak .tmp/manual-tests/fleet/fleet-agent/Chart.yaml.bak'
 
 hdr "1. HAPPY: a dry run, with the three folders given out of order"
 want "==> fleet, ==> fleet-agent and ==> fleet-crd, each with a diff that changes the version to 112.0.0+up0.16.3; nothing is written; exit 0"
@@ -30,7 +30,7 @@ run 'cargueiro stamp --family fleet .tmp/manual-tests/fleet/fleet .tmp/manual-te
 
 hdr "4. FAILURE: an extra chart of another major (a copy where fleet is for Rancher 2.17 and fleet-agent for Rancher 2.16)"
 want "error: fleet-agent: … has major 112, but charts for Rancher 2.16 have major 111; nothing on stdout; exit 1. The three Chart.yaml keep their version 110.0.3+up0.16.3"
-run 'rm -rf .tmp/manual-tests/other && cp -r tests/data/charts/fleet/src .tmp/manual-tests/other && sed -i "s/>= 2.15.0-0 < 2.16.0-0/>= 2.17.0-0 < 2.18.0-0/" .tmp/manual-tests/other/fleet/Chart.yaml && sed -i "s/>= 2.15.0-0 < 2.16.0-0/>= 2.16.0-0 < 2.17.0-0/" .tmp/manual-tests/other/fleet-agent/Chart.yaml'
+run 'rm -rf .tmp/manual-tests/other && cp -r tests/data/charts/fleet/src .tmp/manual-tests/other && sed -i.bak "s/>= 2.15.0-0 < 2.16.0-0/>= 2.17.0-0 < 2.18.0-0/" .tmp/manual-tests/other/fleet/Chart.yaml && sed -i.bak "s/>= 2.15.0-0 < 2.16.0-0/>= 2.16.0-0 < 2.17.0-0/" .tmp/manual-tests/other/fleet-agent/Chart.yaml && rm -f .tmp/manual-tests/other/fleet/Chart.yaml.bak .tmp/manual-tests/other/fleet-agent/Chart.yaml.bak'
 run 'cargueiro stamp --family fleet .tmp/manual-tests/other/fleet-crd .tmp/manual-tests/other/fleet-agent .tmp/manual-tests/other/fleet --version 112.0.0+up0.16.3'
 run 'grep -H "^version:" .tmp/manual-tests/other/fleet/Chart.yaml .tmp/manual-tests/other/fleet-agent/Chart.yaml .tmp/manual-tests/other/fleet-crd/Chart.yaml'
 

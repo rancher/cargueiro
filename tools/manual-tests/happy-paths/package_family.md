@@ -25,7 +25,7 @@ run 'cargueiro check archive --family fleet .tmp/manual-tests/out/fleet-110.0.3+
 
 hdr "3. FAILURE: one chart is not valid (a copy where fleet-agent has no annotations)"
 want "the report of fleet-agent only ('valid: false'), then 'error: fleet-agent: the chart is not valid, so the family was not packaged'; exit 1. Then ls says the output folder is not there (exit 2): no archive was built, not even the ones of the charts that are valid"
-run 'cp -r tests/data/charts/fleet/src .tmp/manual-tests/bad && sed -i "/catalog.cattle.io/d" .tmp/manual-tests/bad/fleet-agent/Chart.yaml'
+run 'cp -r tests/data/charts/fleet/src .tmp/manual-tests/bad && sed -i.bak "/catalog.cattle.io/d" .tmp/manual-tests/bad/fleet-agent/Chart.yaml && rm -f .tmp/manual-tests/bad/fleet-agent/Chart.yaml.bak'
 run 'cargueiro package --family fleet .tmp/manual-tests/bad/fleet .tmp/manual-tests/bad/fleet-agent .tmp/manual-tests/bad/fleet-crd --output-dir .tmp/manual-tests/out-bad'
 run 'ls .tmp/manual-tests/out-bad'
 
