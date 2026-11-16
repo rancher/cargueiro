@@ -3,6 +3,8 @@ package audit
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -123,4 +125,46 @@ func TestRunGivesTheCredentialsOfTheRegistry(t *testing.T) {
 
 	require.Equal(t, "stgregistry.suse.com", host)
 	require.Equal(t, oci.FetchOptions{Username: "user", Password: "secret", PlainHTTP: true}, got)
+}
+
+func TestRunLeavesTheLegacyVersionsOut(t *testing.T) {
+	const legacyVersion = "110.0.3+up0.16.3"
+	stub := &registryStub{tags: map[string]oci.ManifestInfo{
+		"stgregistry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3": {ManifestDigest: manifestA, ChartDigest: "sha256:" + archiveC},
+	}}
+	text := fleetIndex(
+		fleetVersion("111.0.3+up0.17.3", manifestA, archiveC),
+		// A legacy version, with a url that is not the staging registry, a digest that
+		// is not in the registry and a chart that is not even in the rules.
+		strings.Replace(fleetVersion(legacyVersion, manifestB, archiveD), "stgregistry.suse.com/rancher/catalog", "registry.example.com/elsewhere", 1),
+	) + "  old-chart:\n  - apiVersion: v2\n    name: old-chart\n    version: 1.0.0\n    digest: " + archiveD + "\n    urls:\n    - oci://registry.example.com/old-chart:1.0.0@" + manifestB + "\n"
+	dir := writeIndex(t, text)
+	writeLegacy(t, dir, "fleet/"+legacyVersion+".yaml", "old-chart/1.0.0.yaml")
+
+	report := run(t, Options{Dir: dir, Fetch: stub.fetch})
+
+	require.True(t, report.Valid(), report)
+	require.Equal(t, []string{"stgregistry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3"}, stub.requests, "only the new version is read from the registry")
+	require.Contains(t, report[0].Description, "1 versions", "and only it is counted")
+}
+
+func TestRunFailsWhenLegacyHasSomethingThatIsNotAnEntry(t *testing.T) {
+	dir := writeIndex(t, fleetIndex(fleetVersion("111.0.3+up0.17.3", manifestA, archiveC)))
+	writeLegacy(t, dir, "fleet/notes.txt")
+
+	report := run(t, Options{Dir: dir})
+
+	require.False(t, report.Valid())
+	require.Contains(t, report[0].Error, "legacy/fleet/notes.txt is not an entry")
+}
+
+// writeLegacy creates the files of legacy/ that are given, relative to it.
+func writeLegacy(t *testing.T, dir string, files ...string) {
+	t.Helper()
+
+	for _, file := range files {
+		path := filepath.Join(dir, "legacy", file)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	}
 }

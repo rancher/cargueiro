@@ -16,6 +16,8 @@ Credentials are optional. Without them the registry is read anonymously, which i
 
 `--output` is `text` (the default) or `json`, a list of the results.
 
+The versions in `legacy/` are left out. They were imported as they were published, and the import checks them when it writes them, so they are not read from the registry, not held to the URL the rules say, and not counted.
+
 Target-Audience: Release Team and Automation
 
 ## Examples

@@ -222,3 +222,55 @@ func TestArchiveRefsFailsOnAFolderInAChartFolder(t *testing.T) {
 	require.ErrorContains(t, err, "assets/fleet/fleet-1.tgz is not an archive")
 	require.Nil(t, got)
 }
+
+func TestLegacyRefs(t *testing.T) {
+	tests := []struct {
+		name    string
+		files   map[string]string
+		want    []Ref
+		wantErr string
+	}{
+		{
+			name:  "no legacy folder",
+			files: map[string]string{"entries/fleet/1.yaml": "x"},
+		},
+		{
+			name: "the versions of each chart, by the names of the files",
+			files: map[string]string{
+				"legacy/fleet/110.0.3+up0.16.3.yaml": "x",
+				"legacy/fleet/110.0.4+up0.16.4.yaml": "x",
+				"legacy/rancher-backup/106.0.1.yaml": "x",
+			},
+			want: []Ref{
+				{Chart: "fleet", Version: "110.0.3+up0.16.3"},
+				{Chart: "fleet", Version: "110.0.4+up0.16.4"},
+				{Chart: "rancher-backup", Version: "106.0.1"},
+			},
+		},
+		{
+			name:    "a file where a chart folder is expected",
+			files:   map[string]string{"legacy/README.md": "x"},
+			wantErr: "legacy/README.md is not a chart directory",
+		},
+		{
+			name:    "a file that is not an entry",
+			files:   map[string]string{"legacy/fleet/notes.txt": "x"},
+			wantErr: "legacy/fleet/notes.txt is not an entry: it must be called <version>.yaml",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, tt.files)
+
+			got, err := LegacyRefs(dir)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.ElementsMatch(t, tt.want, got)
+		})
+	}
+}

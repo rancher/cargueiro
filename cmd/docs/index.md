@@ -16,6 +16,8 @@ An entry with `hide: true` is a published version that must no longer be offered
 
 The command prints what it did, one version to a line: `add <chart> <version>` for each version added to the index, then `hide <chart> <version>` for each one left out of it, or `nothing to change`. `--dry-run` prints the same lines for what it would do, and pulls and writes nothing. It does every check that needs no registry, so it cannot check the manifest digest or the archive of a new version. The exit code is 0, or 1 when a check fails.
 
+The versions of the old system are in `legacy/<chart>/<version>.yaml`, the entry of the old index with the `digest` of its archive and a URL that points to the registry. They are listed in the index with the others, newest first, and nothing is checked or pulled for them: they have no archive in `assets/`, and one that appears is an error. A version cannot be in `entries/` and in `legacy/`. The report says `add legacy <chart> <version>` for each one it adds.
+
 Target-Audience: Release Team and Automation
 
 ## Examples

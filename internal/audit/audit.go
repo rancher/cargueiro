@@ -1,5 +1,6 @@
 // Package audit checks that a charts repository agrees with itself and with the
-// registries its versions are pulled from. It reads the repository once, asks
+// registries its versions are pulled from. The legacy versions, the ones of the
+// old system that were imported, are left out. It reads the repository once, asks
 // the registry once for each version, and then compares what it read, so each
 // check is a function of data in memory. None of the checks stops the others,
 // and the result is a report with one line for each of them.
@@ -133,12 +134,26 @@ func read(cfg *rules.Config, opts Options) (*snapshot, error) {
 		return nil, err
 	}
 
+	// The versions of the old system were imported as they were published, and
+	// the import checks them when it writes them, so they are not audited.
+	legacy, err := index.LegacyRefs(opts.Dir)
+	if err != nil {
+		return nil, err
+	}
+	imported := make(map[index.Ref]struct{}, len(legacy))
+	for _, ref := range legacy {
+		imported[ref] = struct{}{}
+	}
+
 	snap := &snapshot{cfg: cfg, registry: opts.Registry}
 	if idx == nil {
 		return snap, nil
 	}
 	for name, versions := range idx.Entries {
 		for _, v := range versions {
+			if _, isLegacy := imported[index.Ref{Chart: name, Version: v.Version}]; isLegacy {
+				continue
+			}
 			snap.versions = append(snap.versions, published{chart: name, entry: v})
 		}
 	}
