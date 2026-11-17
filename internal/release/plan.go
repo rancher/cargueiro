@@ -33,11 +33,25 @@ type Options struct {
 	// the charts are copied to, as host[:port]/path. The name of the chart is added.
 	Registry string
 	// Families limits the release to the charts of these families, by their names
-	// in rules.yaml. None means every legacy version staging has.
+	// in rules.yaml. None means every version staging has.
 	Families []string
+	// ImageRegistry and StagingImageRegistry replace the production and the staging
+	// registry of the images of the charts, as host[:port]/path, for local registries.
+	// They are only used when the new versions are released.
+	ImageRegistry        string
+	StagingImageRegistry string
 }
 
-// Item is a legacy version to release.
+// Image is an image that a chart needs, and that is copied with it.
+type Image struct {
+	// Name is the entry of helm.sh/images that lists it.
+	Name string
+	// Source is where it is in the staging registry, and Destination where it goes in
+	// the production one, both as host/path/image:tag.
+	Source, Destination oci.ChartRef
+}
+
+// Item is a version to release.
 type Item struct {
 	Chart string
 	// Entry is the legacy entry of the version in the staging repository.
@@ -50,6 +64,18 @@ type Item struct {
 	ManifestDigest string
 	// Destination is where the chart is copied to, host/path/chart:tag.
 	Destination oci.ChartRef
+	// Dir is the folder of the production repository that gets the entry: legacy/ for a
+	// legacy version, entries/ for a new one.
+	Dir string
+	// Raw is the file of the staging entry, for a new version. The entry that is written
+	// is these bytes with the URL changed, so nothing else in it changes. A legacy entry
+	// is written from Entry.
+	Raw []byte
+	// Images are the images the chart lists, for a new version.
+	Images []Image
+	// Validate says that the chart is checked against the rules before anything is copied:
+	// a new version is, a legacy one is not, since it was imported as it was published.
+	Validate bool
 }
 
 // Logo is a logo of the staging repository that the production one does not have.
@@ -59,10 +85,18 @@ type Logo struct {
 	From string
 }
 
+// Skipped is a version that staging has and that is not released, and why.
+type Skipped struct {
+	Chart, Version, Reason string
+}
+
 // Plan is what a release would do.
 type Plan struct {
 	// Release are the versions that production does not have, by chart and version.
 	Release []Item
+	// Skipped are the versions that production does not have and that are not released:
+	// the hidden ones and the release candidates. Only a release of new versions has any.
+	Skipped []Skipped
 	// Logos are the logos of those versions that staging has and production does
 	// not, sorted by name. A logo production has is never replaced.
 	Logos []Logo
@@ -74,12 +108,19 @@ type Plan struct {
 // Report says what the plan does, one line each: the versions to release, the logos
 // to copy and the logos that are missing, or that there is nothing to do.
 func (p Plan) Report() string {
-	if len(p.Release) == 0 {
-		return "nothing to release\n"
-	}
 	var report strings.Builder
+	for _, skip := range p.Skipped {
+		fmt.Fprintf(&report, "skip %s %s: %s\n", skip.Chart, skip.Version, skip.Reason)
+	}
+	if len(p.Release) == 0 {
+		report.WriteString("nothing to release\n")
+		return report.String()
+	}
 	for _, item := range p.Release {
 		fmt.Fprintf(&report, "release %s %s\n", item.Chart, item.Entry.Version)
+		for _, image := range item.Images {
+			fmt.Fprintf(&report, "  image %s\n", image.Source.String())
+		}
 	}
 	for _, logo := range p.Logos {
 		fmt.Fprintf(&report, "copy logo %s\n", logo.Name)
@@ -218,7 +259,7 @@ func makeItem(cfg *rules.Config, opts Options, ref index.Ref) (Item, error) {
 	if err != nil {
 		return Item{}, fmt.Errorf("%s: %w", name, err)
 	}
-	return Item{Chart: ref.Chart, Entry: chartVersion, Source: source, ManifestDigest: manifestDigest, Destination: destination}, nil
+	return Item{Chart: ref.Chart, Entry: chartVersion, Source: source, ManifestDigest: manifestDigest, Destination: destination, Dir: index.LegacyDir}, nil
 }
 
 // readLegacyEntry reads the legacy entry of ref in the repository dir.

@@ -151,19 +151,31 @@ func releaseVersion(ctx context.Context, repoDir string, item Item, reg Registry
 	return did + " " + name, nil
 }
 
-// writeEntry writes the legacy entry of a version: the entry of staging as it is,
-// with the URL that points to the manifest in the production registry. It never
-// replaces a file.
+// writeEntry writes the entry of a version to the production repository, to the folder of
+// the item, and never replaces a file. The URL of the entry points to the manifest in the
+// production registry. A new version is written from the bytes of the staging entry with
+// only the URL changed, and a legacy one from its entry, which is the entry of the old
+// index.
 func writeEntry(repoDir string, item Item) error {
-	entry := *item.Entry
-	entry.URLs = []string{"oci://" + item.Destination.String() + "@" + item.ManifestDigest}
-	data, err := yaml.Marshal(&entry)
-	if err != nil {
-		return fmt.Errorf("%s %s: %w", item.Chart, item.Entry.Version, err)
+	url := "oci://" + item.Destination.String() + "@" + item.ManifestDigest
+	var data []byte
+	if item.Raw != nil {
+		old := item.Entry.URLs[0]
+		if strings.Count(string(item.Raw), old) != 1 {
+			return fmt.Errorf("the entry of %s %s does not have its url once, so it cannot be moved", item.Chart, item.Entry.Version)
+		}
+		data = []byte(strings.Replace(string(item.Raw), old, url, 1))
+	} else {
+		entry := *item.Entry
+		entry.URLs = []string{url}
+		var err error
+		if data, err = yaml.Marshal(&entry); err != nil {
+			return fmt.Errorf("%s %s: %w", item.Chart, item.Entry.Version, err)
+		}
 	}
 
 	var batch fsutil.Batch
-	path := filepath.Join(repoDir, index.LegacyDir, item.Chart, item.Entry.Version+".yaml")
+	path := filepath.Join(repoDir, item.Dir, item.Chart, item.Entry.Version+".yaml")
 	if err := batch.Write(path, data); err != nil {
 		return fmt.Errorf("write the entry of %s %s: %w", item.Chart, item.Entry.Version, err)
 	}
