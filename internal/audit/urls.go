@@ -7,12 +7,12 @@ import (
 )
 
 // checkURLs checks that the URL of every version in the index points to where
-// the rules say the version is pulled from: the staging registry of the edition
-// of its chart, with the tag the registry stores and the digest of the manifest
+// the rules say the version is pulled from: the staging or the production registry of the
+// edition of its chart, with the tag the registry stores and the digest of the manifest
 // pinned. index checks it only for a version it adds, so an entry and its line in
 // the index that were edited together, to point somewhere else, would pass it.
 func checkURLs(s *snapshot) (string, error) {
-	description := fmt.Sprintf("The url of each of the %d versions in the index points to the staging registry of its chart.", len(s.versions))
+	description := fmt.Sprintf("The url of each of the %d versions in the index points to the %s registry of its chart.", len(s.versions), s.registryName())
 
 	var found []error
 	for _, v := range s.versions {
@@ -21,7 +21,7 @@ func checkURLs(s *snapshot) (string, error) {
 			found = append(found, fmt.Errorf("%s: %w", versionName(v), err))
 			continue
 		}
-		repository, err := s.cfg.StagingRepository(rule, s.registry)
+		repository, err := s.repository(rule)
 		if err != nil {
 			found = append(found, fmt.Errorf("%s: %w", versionName(v), err))
 			continue

@@ -168,3 +168,74 @@ func writeLegacy(t *testing.T, dir string, files ...string) {
 		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
 	}
 }
+
+func TestRunAuditsTheLegacyVersionsWhenAskedTo(t *testing.T) {
+	const legacyVersion = "110.0.3+up0.16.3"
+	stub := &registryStub{tags: map[string]oci.ManifestInfo{
+		"stgregistry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3": {ManifestDigest: manifestA, ChartDigest: "sha256:" + archiveC},
+		"stgregistry.suse.com/rancher/catalog/fleet:110.0.3_up0.16.3": {ManifestDigest: manifestA, ChartDigest: "sha256:" + archiveC},
+	}}
+	dir := writeIndex(t, fleetIndex(
+		fleetVersion("111.0.3+up0.17.3", manifestA, archiveC),
+		// A legacy version whose tag holds another manifest than its url pins.
+		fleetVersion(legacyVersion, manifestB, archiveC),
+	))
+	writeLegacy(t, dir, "fleet/"+legacyVersion+".yaml")
+
+	report := run(t, Options{Dir: dir, Fetch: stub.fetch, Legacy: true})
+
+	require.False(t, report.Valid(), "the legacy version is held to the registry like any other")
+	require.Len(t, stub.requests, 2, "both are read from the registry")
+	require.Contains(t, report[0].Description, "2 versions")
+	require.Contains(t, report[1].Error, "fleet "+legacyVersion)
+	require.NotContains(t, report[1].Error, "fleet 111.0.3+up0.17.3", "and the other one is not blamed")
+
+	t.Run("a legacy version that agrees with the registry passes", func(t *testing.T) {
+		good := &registryStub{tags: map[string]oci.ManifestInfo{
+			"stgregistry.suse.com/rancher/catalog/fleet:110.0.3_up0.16.3": {ManifestDigest: manifestB, ChartDigest: "sha256:" + archiveD},
+		}}
+		dir := writeIndex(t, fleetIndex(fleetVersion(legacyVersion, manifestB, archiveD)))
+		writeLegacy(t, dir, "fleet/"+legacyVersion+".yaml")
+
+		report := run(t, Options{Dir: dir, Fetch: good.fetch, Legacy: true})
+
+		require.True(t, report.Valid(), report)
+		require.Len(t, good.requests, 1)
+	})
+}
+
+func TestRunAuditsAgainstTheProductionRegistry(t *testing.T) {
+	production := func(text string) string {
+		return strings.ReplaceAll(text, "stgregistry.suse.com", "registry.suse.com")
+	}
+	stub := &registryStub{tags: map[string]oci.ManifestInfo{
+		"registry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3": {ManifestDigest: manifestA, ChartDigest: "sha256:" + archiveC},
+	}}
+	dir := writeIndex(t, production(fleetIndex(fleetVersion("111.0.3+up0.17.3", manifestA, archiveC))))
+
+	report := run(t, Options{Dir: dir, Fetch: stub.fetch, Production: true})
+
+	require.True(t, report.Valid(), report)
+	require.Equal(t, []string{"registry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3"}, stub.requests, "it reads the production registry")
+	require.Contains(t, report[0].Description, "production registry")
+
+	t.Run("a url that points to staging is not valid in production", func(t *testing.T) {
+		dir := writeIndex(t, fleetIndex(fleetVersion("111.0.3+up0.17.3", manifestA, archiveC)))
+
+		report := run(t, Options{Dir: dir, Fetch: stub.fetch, Production: true})
+
+		require.False(t, report.Valid())
+		require.Contains(t, report[0].Error, "fleet")
+	})
+
+	t.Run("staging is the default", func(t *testing.T) {
+		dir := writeIndex(t, fleetIndex(fleetVersion("111.0.3+up0.17.3", manifestA, archiveC)))
+
+		report := run(t, Options{Dir: dir, Fetch: (&registryStub{tags: map[string]oci.ManifestInfo{
+			"stgregistry.suse.com/rancher/catalog/fleet:111.0.3_up0.17.3": {ManifestDigest: manifestA, ChartDigest: "sha256:" + archiveC},
+		}}).fetch})
+
+		require.True(t, report.Valid(), report)
+		require.Contains(t, report[0].Description, "staging registry")
+	})
+}

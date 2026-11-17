@@ -24,8 +24,8 @@ type remoteVersion struct {
 	err  error
 }
 
-// gather reads the manifest of every version of the snapshot from the staging
-// registry of its chart, with one request for each, at most maxRequests at a
+// gather reads the manifest of every version of the snapshot from the registry
+// that is audited, for its chart, with one request for each, at most maxRequests at a
 // time. It reads where the rules say the version is, not where its url says, so
 // a url that was edited to point somewhere else does not change what is read.
 func gather(ctx context.Context, snap *snapshot, opts Options) {
@@ -63,7 +63,7 @@ func readVersion(ctx context.Context, snap *snapshot, v published, opts Options,
 	if err != nil {
 		return remoteVersion{err: err}
 	}
-	repository, err := snap.cfg.StagingRepository(rule, snap.registry)
+	repository, err := snap.repository(rule)
 	if err != nil {
 		return remoteVersion{err: err}
 	}
