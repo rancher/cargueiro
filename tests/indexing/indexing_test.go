@@ -549,3 +549,33 @@ func TestWithdrawThenIndexTakesTheVersionOut(t *testing.T) {
 	require.Equal(t, 1, again.ExitCode)
 	require.Contains(t, again.Stderr, "is withdrawn already")
 }
+
+func TestWithdrawFamilyWithdrawsTheChartAndItsSiblings(t *testing.T) {
+	const version = "111.0.3+up0.17.3"
+	repo := t.TempDir()
+	index := "apiVersion: v1\nentries:\n"
+	for _, chart := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		text := "apiVersion: v2\nname: " + chart + "\nurls:\n- oci://stgregistry.suse.com/rancher/catalog/" + chart +
+			":111.0.3_up0.17.3@sha256:1111111111111111111111111111111111111111111111111111111111111111\nversion: " + version + "\n"
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, "entries", chart), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(repo, "entries", chart, version+".yaml"), []byte(text), 0o600))
+		index += "  " + chart + ":\n  - name: " + chart + "\n    version: " + version + "\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "index.yaml"), []byte(index+"generated: \"2026-11-11T17:33:45Z\"\n"), 0o600))
+	crd := filepath.Join(repo, "entries", "fleet-crd", version+".yaml")
+
+	res := harness.Cargueiro(t, t.TempDir(), "withdraw", "--family", crd)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet "+version+"\nwithdraw fleet-agent "+version+"\nwithdraw fleet-crd "+version+"\n", res.Stdout)
+	for _, chart := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		data, err := os.ReadFile(filepath.Join(repo, "entries", chart, version+".yaml"))
+		require.NoError(t, err)
+		require.True(t, strings.HasSuffix(string(data), "withdrawn: true\n"), chart)
+	}
+
+	again := harness.Cargueiro(t, t.TempDir(), "withdraw", "--family", crd)
+
+	require.Equal(t, 1, again.ExitCode)
+	require.Contains(t, again.Stderr, "the family fleet is not withdrawn, and nothing was written")
+}
