@@ -32,6 +32,9 @@ type Options struct {
 	// Registry replaces the production registry of the edition of each chart that
 	// the charts are copied to, as host[:port]/path. The name of the chart is added.
 	Registry string
+	// Families limits the release to the charts of these families, by their names
+	// in rules.yaml. None means every legacy version staging has.
+	Families []string
 }
 
 // Item is a legacy version to release.
@@ -100,6 +103,9 @@ func MakePlan(cfg *rules.Config, opts Options) (Plan, error) {
 	if err != nil {
 		return Plan{}, fmt.Errorf("staging: %w", err)
 	}
+	if staged, err = inFamilies(cfg, staged, opts.Families); err != nil {
+		return Plan{}, err
+	}
 	released, err := releasedRefs(opts.Repo)
 	if err != nil {
 		return Plan{}, err
@@ -129,6 +135,28 @@ func MakePlan(cfg *rules.Config, opts Options) (Plan, error) {
 		return Plan{}, err
 	}
 	return plan, nil
+}
+
+// inFamilies keeps the versions of the charts of the families. No families keeps
+// them all, and a family that rules.yaml does not list is an error.
+func inFamilies(cfg *rules.Config, refs []index.Ref, families []string) ([]index.Ref, error) {
+	if len(families) == 0 {
+		return refs, nil
+	}
+	charts := make(map[string]struct{})
+	for _, name := range families {
+		family, err := cfg.Family(name)
+		if err != nil {
+			return nil, err
+		}
+		for _, chart := range family.Names() {
+			charts[chart] = struct{}{}
+		}
+	}
+	return slices.DeleteFunc(slices.Clone(refs), func(ref index.Ref) bool {
+		_, wanted := charts[ref.Chart]
+		return !wanted
+	}), nil
 }
 
 // releasedRefs returns the versions the production repository has: the ones with an

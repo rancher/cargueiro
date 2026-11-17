@@ -204,3 +204,47 @@ func TestMakePlanLogos(t *testing.T) {
 	require.Equal(t, []string{"gone.svg"}, plan.MissingLogos)
 	require.Contains(t, plan.Report(), "copy logo fleet.svg\nmissing logo gone.svg\n")
 }
+
+func TestMakePlanFamilies(t *testing.T) {
+	staging, production := t.TempDir(), t.TempDir()
+	writeLegacy(t, staging, "fleet", "110.0.3+up0.16.3", "", legacyURL("fleet", "t1", "sha256:a"))
+	writeLegacy(t, staging, "fleet-crd", "110.0.3+up0.16.3", "", legacyURL("fleet-crd", "t2", "sha256:b"))
+	writeLegacy(t, staging, "rancher-backup", "110.0.3+up11.0.4", "", legacyURL("rancher-backup", "t3", "sha256:c"))
+	writeLegacy(t, staging, "rancher-istio", "110.0.3+up1", "", legacyURL("rancher-istio", "t4", "sha256:d"))
+	cfg := loadRules(t)
+
+	t.Run("a family is all its charts and no other", func(t *testing.T) {
+		plan, err := MakePlan(cfg, Options{From: staging, Repo: production, Families: []string{"fleet"}})
+
+		require.NoError(t, err)
+		require.Equal(t, []string{"fleet 110.0.3+up0.16.3", "fleet-crd 110.0.3+up0.16.3"}, itemNames(plan))
+	})
+
+	t.Run("more than one family", func(t *testing.T) {
+		plan, err := MakePlan(cfg, Options{From: staging, Repo: production, Families: []string{"rancher-istio", "rancher-backup"}})
+
+		require.NoError(t, err)
+		require.Equal(t, []string{"rancher-backup 110.0.3+up11.0.4", "rancher-istio 110.0.3+up1"}, itemNames(plan))
+	})
+
+	t.Run("none is every family", func(t *testing.T) {
+		plan, err := MakePlan(cfg, Options{From: staging, Repo: production})
+
+		require.NoError(t, err)
+		require.Len(t, plan.Release, 4)
+	})
+
+	t.Run("a family with nothing in staging has nothing to release", func(t *testing.T) {
+		plan, err := MakePlan(cfg, Options{From: staging, Repo: production, Families: []string{"longhorn"}})
+
+		require.NoError(t, err)
+		require.Empty(t, plan.Release)
+		require.Equal(t, "nothing to release\n", plan.Report())
+	})
+
+	t.Run("a family that rules.yaml does not list is an error", func(t *testing.T) {
+		_, err := MakePlan(cfg, Options{From: staging, Repo: production, Families: []string{"fleet", "not-a-family"}})
+
+		require.ErrorContains(t, err, `family "not-a-family" is not listed in the rules file`)
+	})
+}
