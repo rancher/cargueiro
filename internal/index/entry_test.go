@@ -16,24 +16,24 @@ version: 111.0.3
 
 func TestReadEntry(t *testing.T) {
 	tests := []struct {
-		name     string
-		content  string
-		wantHide bool
+		name          string
+		content       string
+		wantWithdrawn bool
 	}{
 		{
-			name:     "an entry without hide",
-			content:  entryYAML,
-			wantHide: false,
+			name:          "an entry without withdrawn",
+			content:       entryYAML,
+			wantWithdrawn: false,
 		},
 		{
-			name:     "hide: true",
-			content:  entryYAML + "hide: true\n",
-			wantHide: true,
+			name:          "withdrawn: true",
+			content:       entryYAML + "withdrawn: true\n",
+			wantWithdrawn: true,
 		},
 		{
-			name:     "hide: false",
-			content:  entryYAML + "hide: false\n",
-			wantHide: false,
+			name:          "withdrawn: false",
+			content:       entryYAML + "withdrawn: false\n",
+			wantWithdrawn: false,
 		},
 	}
 
@@ -48,7 +48,7 @@ func TestReadEntry(t *testing.T) {
 			require.Equal(t, "fleet", got.Name)
 			require.Equal(t, "111.0.3", got.Version)
 			require.Equal(t, []string{"oci://registry.example.com/fleet:111.0.3"}, got.URLs)
-			require.Equal(t, tt.wantHide, got.Hide)
+			require.Equal(t, tt.wantWithdrawn, got.Withdrawn)
 		})
 	}
 }
@@ -67,9 +67,9 @@ func TestReadEntryFails(t *testing.T) {
 			wantErr: `unknown field "hidden"`,
 		},
 		{
-			name:    "hide that is not a boolean",
+			name:    "withdrawn that is not a boolean",
 			file:    "111.0.3.yaml",
-			content: entryYAML + "hide: soon\n",
+			content: entryYAML + "withdrawn: soon\n",
 			wantErr: "entry fleet/111.0.3.yaml",
 		},
 		{

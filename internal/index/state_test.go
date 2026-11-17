@@ -74,20 +74,20 @@ func TestPlan(t *testing.T) {
 			want: Plan{Add: fleet("1")},
 		},
 		{
-			name: "a published version that is hidden is taken out of the index",
+			name: "a published version that is withdrawn is taken out of the index",
 			state: State{
 				Entries:   fleet("1", "2"),
-				Hidden:    fleet("2"),
+				Withdrawn: fleet("2"),
 				Published: fleet("1", "2"),
 				Archives:  fleet("1", "2"),
 			},
-			want: Plan{Hide: fleet("2")},
+			want: Plan{Withdraw: fleet("2")},
 		},
 		{
-			name: "a version that is hidden already is left alone",
+			name: "a version that is withdrawn already is left alone",
 			state: State{
 				Entries:   fleet("1", "2"),
-				Hidden:    fleet("2"),
+				Withdrawn: fleet("2"),
 				Published: fleet("1"),
 				Archives:  fleet("1", "2"),
 			},
@@ -112,16 +112,16 @@ func TestPlan(t *testing.T) {
 			want: Plan{},
 		},
 		{
-			name: "versions to add and to hide at once",
+			name: "versions to add and to withdraw at once",
 			state: State{
 				Entries:   fleet("1", "2", "3"),
-				Hidden:    fleet("1"),
+				Withdrawn: fleet("1"),
 				Published: fleet("1", "2"),
 				Archives:  fleet("1", "2"),
 			},
 			want: Plan{
-				Add:  fleet("3"),
-				Hide: fleet("1"),
+				Add:      fleet("3"),
+				Withdraw: fleet("1"),
 			},
 		},
 	}
@@ -171,7 +171,7 @@ func TestPlanFails(t *testing.T) {
 			wantErr: []string{"fleet 1 is in index.yaml but has no archive in assets/"},
 		},
 		{
-			name: "a new entry that already has an archive, which is also a hidden version that is no longer hidden",
+			name: "a new entry that already has an archive, which is also a withdrawn version that is no longer withdrawn",
 			state: State{
 				Entries:  fleet("1"),
 				Archives: fleet("1"),
@@ -179,18 +179,18 @@ func TestPlanFails(t *testing.T) {
 			wantErr: []string{"fleet 1 is not in index.yaml yet but already has an archive in assets/"},
 		},
 		{
-			name: "a hidden version that was never published",
-			state: State{
-				Entries: fleet("1"),
-				Hidden:  fleet("1"),
-			},
-			wantErr: []string{"fleet 1 is hidden but was never published: it is not in index.yaml and has no archive in assets/"},
-		},
-		{
-			name: "a hidden version that lost its archive",
+			name: "a withdrawn version that was never published",
 			state: State{
 				Entries:   fleet("1"),
-				Hidden:    fleet("1"),
+				Withdrawn: fleet("1"),
+			},
+			wantErr: []string{"fleet 1 is withdrawn but was never published: it is not in index.yaml and has no archive in assets/"},
+		},
+		{
+			name: "a withdrawn version that lost its archive",
+			state: State{
+				Entries:   fleet("1"),
+				Withdrawn: fleet("1"),
 				Published: fleet("1"),
 			},
 			wantErr: []string{"fleet 1 is in index.yaml but has no archive in assets/"},

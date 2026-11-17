@@ -58,7 +58,7 @@ type Options struct {
 }
 
 // Write builds the index of the charts repository in dir and writes it to
-// dir/index.yaml. Hidden versions are not written to it. It returns what it did:
+// dir/index.yaml. Withdrawn versions are not written to it. It returns what it did:
 // the versions it added to the index and the ones it left out of it.
 //
 // Nothing is written unless every entry is valid, the entries, the index that is
@@ -131,11 +131,11 @@ func Write(ctx context.Context, cfg *rules.Config, dir string, opts Options) (Pl
 }
 
 // entries are the entries of a charts repository, as an index and as the
-// versions among them that are hidden.
+// versions among them that are withdrawn.
 type entries struct {
-	// all holds every entry, hidden or not, and the legacy ones.
-	all    *repo.IndexFile
-	hidden []Ref
+	// all holds every entry, withdrawn or not, and the legacy ones.
+	all       *repo.IndexFile
+	withdrawn []Ref
 	// fromEntries are the versions that have an entry in entries/, and legacy the
 	// ones that have one in legacy/. A version in both is an error that the plan
 	// reports.
@@ -143,14 +143,14 @@ type entries struct {
 	legacy      []Ref
 }
 
-// visible returns the index to publish: all the entries but the hidden ones.
+// visible returns the index to publish: all the entries but the withdrawn ones.
 func (e entries) visible() *repo.IndexFile {
-	hidden := refSet(e.hidden)
+	withdrawn := refSet(e.withdrawn)
 
 	idx := &repo.IndexFile{APIVersion: e.all.APIVersion, Entries: map[string]repo.ChartVersions{}}
 	for name, versions := range e.all.Entries {
 		for _, v := range versions {
-			if _, isHidden := hidden[Ref{Chart: name, Version: v.Version}]; !isHidden {
+			if _, isWithdrawn := withdrawn[Ref{Chart: name, Version: v.Version}]; !isWithdrawn {
 				idx.Entries[name] = append(idx.Entries[name], v)
 			}
 		}
@@ -181,12 +181,12 @@ func readEntries(cfg *rules.Config, dir string) (entries, error) {
 		if !c.IsDir() {
 			return entries{}, fmt.Errorf("%s/%s is not a chart directory", EntriesDir, c.Name())
 		}
-		versions, hidden, err := readChart(cfg, policy, filepath.Join(dir, EntriesDir, c.Name()), c.Name())
+		versions, withdrawn, err := readChart(cfg, policy, filepath.Join(dir, EntriesDir, c.Name()), c.Name())
 		if err != nil {
 			return entries{}, err
 		}
 		read.all.Entries[c.Name()] = versions
-		read.hidden = append(read.hidden, hidden...)
+		read.withdrawn = append(read.withdrawn, withdrawn...)
 	}
 	read.fromEntries = indexRefs(read.all)
 
@@ -285,8 +285,8 @@ func readLegacyEntry(path, name, file string) (*entryFile, error) {
 	}
 	where := fmt.Sprintf("legacy entry %s/%s", name, file)
 	switch {
-	case entry.Hide:
-		return nil, fmt.Errorf("%s cannot be hidden", where)
+	case entry.Withdrawn:
+		return nil, fmt.Errorf("%s cannot be withdrawn", where)
 	case !archiveDigestForm.MatchString(entry.Digest):
 		return nil, fmt.Errorf("%s has the digest %q, but it must be the sha256 of the archive in hex", where, entry.Digest)
 	case len(entry.URLs) != 1 || !strings.HasPrefix(entry.URLs[0], "oci://"):
@@ -296,7 +296,7 @@ func readLegacyEntry(path, name, file string) (*entryFile, error) {
 }
 
 // readChart reads the entries of one chart and returns them newest first, and
-// the versions among them that are hidden.
+// the versions among them that are withdrawn.
 func readChart(cfg *rules.Config, policy *version.Policy, dir, name string) (repo.ChartVersions, []Ref, error) {
 	rule, err := cfg.Find(name)
 	if err != nil {
@@ -309,7 +309,7 @@ func readChart(cfg *rules.Config, policy *version.Policy, dir, name string) (rep
 	}
 
 	byVersion := map[string]*repo.ChartVersion{}
-	var hidden []Ref
+	var withdrawn []Ref
 	var problems []error
 	for _, f := range files {
 		file, err := readEntry(filepath.Join(dir, f.Name()), name, f.Name())
@@ -323,8 +323,8 @@ func readChart(cfg *rules.Config, policy *version.Policy, dir, name string) (rep
 			continue
 		}
 		byVersion[entry.Version] = entry
-		if file.Hide {
-			hidden = append(hidden, Ref{Chart: name, Version: entry.Version})
+		if file.Withdrawn {
+			withdrawn = append(withdrawn, Ref{Chart: name, Version: entry.Version})
 		}
 	}
 	if len(problems) > 0 {
@@ -339,16 +339,16 @@ func readChart(cfg *rules.Config, policy *version.Policy, dir, name string) (rep
 	for _, v := range ordered {
 		versions = append(versions, byVersion[v])
 	}
-	return versions, hidden, nil
+	return versions, withdrawn, nil
 }
 
 // entryFile is an entry as it is written in entries/: the version as the index
-// lists it, and whether the version is hidden.
+// lists it, and whether the version is withdrawn.
 type entryFile struct {
 	repo.ChartVersion
-	// Hide takes the version out of the index, without removing the entry or
+	// Withdrawn takes the version out of the index, without removing the entry or
 	// the archive. It is not a field of the index.
-	Hide bool `json:"hide,omitempty"`
+	Withdrawn bool `json:"withdrawn,omitempty"`
 }
 
 // readEntry reads the entry in path, which must be the file of chart name.
