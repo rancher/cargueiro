@@ -73,6 +73,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`stamp`](cmd/docs/stamp.md) | Put the final version and the helm.sh/images annotation on a chart directory. |
 | [`upstream-repos`](cmd/docs/upstream-repos.md) | List the upstream repository of every main chart of the `rancher-charts` edition in `rules.yaml`. |
 | [`version`](cmd/docs/version.md) | Print the cargueiro version. |
+| [`withdraw`](cmd/docs/withdraw.md) | Withdraw a published version from the catalog. |
 <!-- COMMANDS:END -->
 
 ## Documentation
