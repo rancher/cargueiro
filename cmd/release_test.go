@@ -198,3 +198,26 @@ func TestReleaseWorksBetweenOneRegistryAndOneRegistry(t *testing.T) {
 
 	require.ErrorContains(t, err, "a release works between one registry and one registry")
 }
+
+func TestReleaseOnlyTheFamiliesGiven(t *testing.T) {
+	staging := releaseStaging(t, "110.0.3_up0.16.3")
+	other := releaseStaging(t, "110.0.4_up11.0.4")
+	data, err := os.ReadFile(filepath.Join(other, "legacy", "fleet", "110.0.4_up11.0.4.yaml"))
+	require.NoError(t, err)
+	backup := bytes.ReplaceAll(bytes.ReplaceAll(data, []byte("name: fleet"), []byte("name: rancher-backup")), []byte("catalog/fleet:"), []byte("catalog/rancher-backup:"))
+	require.NoError(t, os.MkdirAll(filepath.Join(staging, "legacy", "rancher-backup"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(staging, "legacy", "rancher-backup", "110.0.4_up11.0.4.yaml"), backup, 0o600))
+
+	stdout, err := runReleaseWith(t, &fakeReleaseRegistry{has: map[string]string{}}, nil,
+		"--legacy", "--from", staging, "--repo", t.TempDir(), "--family", "fleet", "--dry-run")
+
+	require.NoError(t, err)
+	require.Equal(t, "release fleet 110.0.3_up0.16.3\n", stdout)
+
+	t.Run("an unknown family is an error", func(t *testing.T) {
+		_, err := runReleaseWith(t, &fakeReleaseRegistry{has: map[string]string{}}, nil,
+			"--legacy", "--from", staging, "--repo", t.TempDir(), "--family", "nope", "--dry-run")
+
+		require.ErrorContains(t, err, `family "nope" is not listed in the rules file`)
+	})
+}

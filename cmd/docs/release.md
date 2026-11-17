@@ -2,7 +2,7 @@
 
 Release the legacy versions from the staging charts repository to the production one.
 
-`--legacy` is required, because the legacy versions, the ones in `legacy/` that `import` wrote, are the only thing this command releases for now. `--from` is a checkout of the staging charts repository and `--repo` is a checkout of the production one. The versions to release are the ones that have an entry in the `legacy/` of staging and that production has neither in its `legacy/` nor in its `index.yaml`. The command never releases a version again, and a legacy entry never changes.
+`--legacy` is required, because the legacy versions, the ones in `legacy/` that `import` wrote, are the only thing this command releases for now. `--from` is a checkout of the staging charts repository and `--repo` is a checkout of the production one. The versions to release are the ones that have an entry in the `legacy/` of staging and that production has neither in its `legacy/` nor in its `index.yaml`. The command never releases a version again, and a legacy entry never changes. `--family` limits it to the charts of a family of `rules.yaml`, and it can be given more than once: a release of every family copies more than one run can finish, so it is done a family at a time. A family that `rules.yaml` does not list is an error, and one that staging has no legacy version of has nothing to release.
 
 Each version is copied on its own, from the registry its entry says to the production registry of its edition, `registry.suse.com/rancher/catalog` for the charts of `rancher-charts`, and `--registry` changes it, as `host[:port]/path`, for a local registry. The copy keeps the manifest as it is, by its digest, so the production tag names the same manifest the entry pins. First the production registry is looked at: a tag that is not there is copied and read back, and its manifest must be the one of the entry; a tag that has the same manifest is adopted and not copied again; a tag that has another manifest is a conflict, and it is never replaced. Only then the entry is written to the `legacy/` of the production repository, the entry of staging as it is with the URL changed to point to the manifest in the production registry, and the logos the versions use are copied from staging when production does not have them. The entry is the last thing done for a version, so a run that stops anywhere is run again to finish: what is in `legacy/` is complete, and what was copied and has no entry is adopted.
 
@@ -24,6 +24,11 @@ cargueiro release --legacy --from ~/staging --repo ~/production --dry-run
 ```
 # release it
 cargueiro release --legacy --from ~/staging --repo ~/production
+```
+
+```
+# release one family
+cargueiro release --legacy --family fleet --from ~/staging --repo ~/production
 ```
 
 ```
