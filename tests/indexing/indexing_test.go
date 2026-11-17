@@ -513,3 +513,39 @@ func TestIndexRefusesToChangeAPublishedArchive(t *testing.T) {
 	require.Contains(t, res.Stderr, "A published archive is never allowed to change")
 	require.Equal(t, before, readIndex(t, repo))
 }
+
+func TestWithdrawThenIndexTakesTheVersionOut(t *testing.T) {
+	repo := publishedRepo(t)
+	before := readIndex(t, repo)
+	entry := filepath.Join(repo, "entries", "fleet", "111.0.3+up0.17.4.yaml")
+	text, err := os.ReadFile(entry)
+	require.NoError(t, err)
+
+	dry := harness.Cargueiro(t, t.TempDir(), "withdraw", "--dry-run", entry)
+
+	require.Zero(t, dry.ExitCode, dry.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", dry.Stdout)
+	unchanged, err := os.ReadFile(entry)
+	require.NoError(t, err)
+	require.Equal(t, text, unchanged, "a dry run writes nothing")
+
+	res := harness.Cargueiro(t, t.TempDir(), "withdraw", entry)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", res.Stdout)
+	marked, err := os.ReadFile(entry)
+	require.NoError(t, err)
+	require.Equal(t, string(text)+"withdrawn: true\n", string(marked))
+	require.Equal(t, before, readIndex(t, repo), "withdraw does not touch the index")
+
+	res = harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", res.Stdout)
+	require.NotContains(t, readIndex(t, repo), "version: 111.0.3+up0.17.4\n")
+
+	again := harness.Cargueiro(t, t.TempDir(), "withdraw", entry)
+
+	require.Equal(t, 1, again.ExitCode)
+	require.Contains(t, again.Stderr, "is withdrawn already")
+}
