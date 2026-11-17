@@ -211,6 +211,20 @@ func (c *Config) StagingRepository(chart Chart, registry string) (string, error)
 	return strings.TrimRight(registry, "/") + "/" + chart.Name, nil
 }
 
+// ProductionRepository returns the repository of a chart in the production registry:
+// host/path/name, with no scheme. registry replaces the production registry of the
+// chart's edition when it is not empty, as host[:port]/path.
+func (c *Config) ProductionRepository(chart Chart, registry string) (string, error) {
+	if registry == "" {
+		repositories := c.registries.ChartRepositories(chart.Edition)
+		if len(repositories) < 2 {
+			return "", fmt.Errorf("the rules file has no production registry for the edition %q", chart.Edition)
+		}
+		registry = repositories[1]
+	}
+	return strings.TrimRight(registry, "/") + "/" + chart.Name, nil
+}
+
 // Find returns the chart called name. It fails when the rules file does not
 // list the chart, because then nothing says which rules apply to it.
 func (c *Config) Find(name string) (Chart, error) {
