@@ -210,7 +210,7 @@ func makeItem(cfg *rules.Config, opts Options, ref index.Ref) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	repository, err := productionRepository(cfg, rule, opts.Registry)
+	repository, err := cfg.ProductionRepository(rule, opts.Registry)
 	if err != nil {
 		return Item{}, fmt.Errorf("%s: %w", name, err)
 	}
@@ -219,20 +219,6 @@ func makeItem(cfg *rules.Config, opts Options, ref index.Ref) (Item, error) {
 		return Item{}, fmt.Errorf("%s: %w", name, err)
 	}
 	return Item{Chart: ref.Chart, Entry: chartVersion, Source: source, ManifestDigest: manifestDigest, Destination: destination}, nil
-}
-
-// productionRepository returns the repository of a chart in the production registry:
-// host/path/name. registry replaces the production registry of the edition of the
-// chart when it is not empty.
-func productionRepository(cfg *rules.Config, chart rules.Chart, registry string) (string, error) {
-	if registry == "" {
-		repositories := cfg.Registries().ChartRepositories(chart.Edition)
-		if len(repositories) < 2 {
-			return "", fmt.Errorf("the rules file has no production registry for the edition %q", chart.Edition)
-		}
-		registry = repositories[1]
-	}
-	return strings.TrimRight(registry, "/") + "/" + chart.Name, nil
 }
 
 // readLegacyEntry reads the legacy entry of ref in the repository dir.

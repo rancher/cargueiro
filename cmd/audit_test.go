@@ -140,3 +140,30 @@ func TestAuditTextPrintsOneProblemToALine(t *testing.T) {
 
 	require.Equal(t, "check: manifest\nvalid: false\ndescription: d\nerror:\n  a\n  b\n", got)
 }
+
+func TestAuditProductionAndLegacy(t *testing.T) {
+	dir := t.TempDir()
+	text := "apiVersion: v1\nentries:\n  fleet:\n  - apiVersion: v2\n    name: fleet\n    version: 110.0.3+up0.16.3\n    digest: " + auditArchive +
+		"\n    urls:\n    - oci://registry.suse.com/rancher/catalog/fleet:110.0.3_up0.16.3@" + auditManifest + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.yaml"), []byte(text), 0o600))
+	legacy := filepath.Join(dir, "legacy", "fleet")
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, "110.0.3+up0.16.3.yaml"), []byte("x"), 0o600))
+	fake := &fakeAuditRegistry{info: oci.ManifestInfo{ManifestDigest: auditManifest, ChartDigest: "sha256:" + auditArchive}}
+
+	t.Run("it has nothing to audit without --legacy", func(t *testing.T) {
+		stdout, _, err := runAudit(t, fake, "--repo", dir, "--production")
+
+		require.NoError(t, err)
+		require.Contains(t, stdout, "0 versions")
+	})
+
+	t.Run("with --production and --legacy it reads the version from the production registry", func(t *testing.T) {
+		stdout, _, err := runAudit(t, fake, "--repo", dir, "--production", "--legacy")
+
+		require.NoError(t, err)
+		require.Contains(t, stdout, "1 versions")
+		require.Equal(t, "registry.suse.com", fake.ref.Host)
+		require.Equal(t, "rancher/catalog/fleet", fake.ref.Repository)
+	})
+}

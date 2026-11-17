@@ -1,6 +1,7 @@
 // Package audit checks that a charts repository agrees with itself and with the
 // registries its versions are pulled from. The legacy versions, the ones of the
-// old system that were imported, are left out. It reads the repository once, asks
+// old system that were imported, are left out unless Options.Legacy asks for them.
+// It reads the repository once, asks
 // the registry once for each version, and then compares what it read, so each
 // check is a function of data in memory. None of the checks stops the others,
 // and the result is a report with one line for each of them.
@@ -51,9 +52,17 @@ func (r Report) Valid() bool {
 type Options struct {
 	// Dir is the charts repository.
 	Dir string
-	// Registry replaces the staging registry of the edition of each chart, as
+	// Registry replaces the registry of the edition of each chart, as
 	// host[:port]/path. The name of the chart is added to it.
 	Registry string
+	// Production audits against the production registry of each chart instead of
+	// the staging one.
+	Production bool
+	// Legacy audits the legacy versions too. They were imported as they were
+	// published, and the import and the release check them when they write them,
+	// so they are left out unless this is set. A repository that only has legacy
+	// versions, such as production at the start, has nothing to audit without it.
+	Legacy bool
 	// PlainHTTP talks HTTP to the registry instead of HTTPS.
 	PlainHTTP bool
 	// Credentials gives the credentials to read each registry. Nil reads
@@ -73,8 +82,9 @@ type published struct {
 // snapshot is everything the checks compare: it is read before the first check
 // runs, and no check reads anything else.
 type snapshot struct {
-	cfg      *rules.Config
-	registry string
+	cfg        *rules.Config
+	registry   string
+	production bool
 	// versions are the versions of the index, sorted by chart and version.
 	versions []published
 	// remote is what the registry answered for each version, by versionName. It
@@ -135,17 +145,20 @@ func read(cfg *rules.Config, opts Options) (*snapshot, error) {
 	}
 
 	// The versions of the old system were imported as they were published, and
-	// the import checks them when it writes them, so they are not audited.
-	legacy, err := index.LegacyRefs(opts.Dir)
-	if err != nil {
-		return nil, err
-	}
-	imported := make(map[index.Ref]struct{}, len(legacy))
-	for _, ref := range legacy {
-		imported[ref] = struct{}{}
+	// the import checks them when it writes them, so they are left out unless the
+	// audit is asked for them.
+	imported := make(map[index.Ref]struct{})
+	if !opts.Legacy {
+		legacy, err := index.LegacyRefs(opts.Dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, ref := range legacy {
+			imported[ref] = struct{}{}
+		}
 	}
 
-	snap := &snapshot{cfg: cfg, registry: opts.Registry}
+	snap := &snapshot{cfg: cfg, registry: opts.Registry, production: opts.Production}
 	if idx == nil {
 		return snap, nil
 	}
@@ -187,6 +200,23 @@ func runCheck(c check, snap *snapshot, readErr error) Result {
 // problems joins what a check found wrong, or returns nil when it found nothing.
 func problems(found []error) error {
 	return errors.Join(found...)
+}
+
+// repository returns the repository of a chart in the registry that is audited: the
+// staging one, or the production one.
+func (s *snapshot) repository(chart rules.Chart) (string, error) {
+	if s.production {
+		return s.cfg.ProductionRepository(chart, s.registry)
+	}
+	return s.cfg.StagingRepository(chart, s.registry)
+}
+
+// registryName says which registry is audited, for the descriptions.
+func (s *snapshot) registryName() string {
+	if s.production {
+		return "production"
+	}
+	return "staging"
 }
 
 // versionName names a version for an error.

@@ -279,3 +279,41 @@ func TestReleaseOnlyTheFamilyGiven(t *testing.T) {
 		require.Equal(t, "nothing to release\n", res.Stdout)
 	})
 }
+
+func TestAuditAcceptsWhatWasReleasedAndFindsWhatWasChanged(t *testing.T) {
+	source := oldSystem(t, map[string][]string{"fleet": {"110.0.3+up0.16.3", "110.0.4+up0.16.4"}}, "old")
+	staging, _ := stagingRepo(t, source)
+	production, productionRegistry := t.TempDir(), productionPath(t)
+	require.Zero(t, release(t, staging, production, productionRegistry).ExitCode)
+	require.Zero(t, harness.Cargueiro(t, t.TempDir(), "index", "--repo", production).ExitCode)
+	audit := func() harness.Result {
+		return harness.CargueiroWith(t, harness.Options{Dir: t.TempDir(), Env: []string{"CARGUEIRO_PASSWORD=" + harness.RegistryPassword}},
+			"audit", "--repo", production, "--production", "--legacy", "--registry", productionRegistry, "--plain-http", "--username", harness.RegistryUser)
+	}
+
+	res := audit()
+
+	require.Zero(t, res.ExitCode, res.Stdout+res.Stderr)
+	require.Contains(t, res.Stdout, "2 versions", "both legacy versions are audited")
+	require.Contains(t, res.Stdout, "production registry")
+
+	t.Run("without --legacy there is nothing to audit", func(t *testing.T) {
+		res := harness.Cargueiro(t, t.TempDir(), "audit", "--repo", production, "--production", "--registry", productionRegistry, "--plain-http")
+
+		require.Zero(t, res.ExitCode, res.Stdout+res.Stderr)
+		require.Contains(t, res.Stdout, "0 versions")
+	})
+
+	t.Run("a digest that was changed is found", func(t *testing.T) {
+		path := filepath.Join(production, "index.yaml")
+		index := readFile(t, path)
+		at := strings.Index(index, "digest: ")
+		require.Positive(t, at)
+		write(t, path, index[:at+len("digest: ")]+strings.Repeat("a", 64)+index[at+len("digest: ")+64:])
+
+		res := audit()
+
+		require.Equal(t, 1, res.ExitCode)
+		require.Contains(t, res.Stdout, "the index has the digest sha256:"+strings.Repeat("a", 64))
+	})
+}
