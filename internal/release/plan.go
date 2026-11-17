@@ -95,7 +95,7 @@ type Plan struct {
 	// Release are the versions that production does not have, by chart and version.
 	Release []Item
 	// Skipped are the versions that production does not have and that are not released:
-	// the hidden ones and the release candidates. Only a release of new versions has any.
+	// the withdrawn ones and the release candidates. Only a release of new versions has any.
 	Skipped []Skipped
 	// Logos are the logos of those versions that staging has and production does
 	// not, sorted by name. A logo production has is never replaced.

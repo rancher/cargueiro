@@ -24,11 +24,11 @@ import (
 const helmImages = "helm.sh/images"
 
 // stagedEntry is an entry of the staging repository: the version as the index lists
-// it, and whether it is hidden. It is read as index reads it.
+// it, and whether it is withdrawn. It is read as index reads it.
 type stagedEntry struct {
 	repo.ChartVersion
-	Hide bool `json:"hide,omitempty"`
-	raw  []byte
+	Withdrawn bool `json:"withdrawn,omitempty"`
+	raw       []byte
 }
 
 // MakeEntriesPlan works out what releasing the new versions would do: the ones in the
@@ -36,7 +36,7 @@ type stagedEntry struct {
 // entries/ or in its index.yaml. It never looks at legacy/: those versions are released by
 // MakePlan.
 //
-// A hidden version is not released, and neither is a release candidate: one whose upstream
+// A withdrawn version is not released, and neither is a release candidate: one whose upstream
 // part ends in -rc.N, -beta.N or -alpha.N, which are indexed on staging only. Each is in
 // Plan.Skipped with its reason. The rest are in Plan.Release, with the images their chart
 // lists.
@@ -83,8 +83,8 @@ func MakeEntriesPlan(cfg *rules.Config, opts Options) (Plan, error) {
 		}
 		entry := staged[ref]
 		switch {
-		case entry.Hide:
-			plan.Skipped = append(plan.Skipped, Skipped{ref.Chart, ref.Version, "hidden"})
+		case entry.Withdrawn:
+			plan.Skipped = append(plan.Skipped, Skipped{ref.Chart, ref.Version, "withdrawn"})
 			continue
 		case candidates.MatchString(ref.Version):
 			plan.Skipped = append(plan.Skipped, Skipped{ref.Chart, ref.Version, "release candidate"})

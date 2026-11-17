@@ -252,7 +252,7 @@ func TestReleaseOnlyTheFamiliesGiven(t *testing.T) {
 }
 
 // releaseStagingNew writes a staging repository with new versions of fleet: a final one that
-// lists two images, a release candidate, and a hidden one.
+// lists two images, a release candidate, and a withdrawn one.
 func releaseStagingNew(t *testing.T) string {
 	t.Helper()
 
@@ -268,7 +268,7 @@ func releaseStagingNew(t *testing.T) string {
 	}
 	write("111.0.2+up0.17.0", "")
 	write("111.0.1+up0.17.0-rc.4", "")
-	write("111.0.3+up0.17.1", "hide: true\n")
+	write("111.0.3+up0.17.1", "withdrawn: true\n")
 	return dir
 }
 
@@ -308,7 +308,7 @@ func TestReleaseNewVersionsDryRunSaysWhatIsLeftOut(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ""+
 		"skip fleet 111.0.1+up0.17.0-rc.4: release candidate\n"+
-		"skip fleet 111.0.3+up0.17.1: hidden\n"+
+		"skip fleet 111.0.3+up0.17.1: withdrawn\n"+
 		"release fleet 111.0.2+up0.17.0\n"+
 		"  image stgregistry.suse.com/rancher/fleet:v0.17.0\n"+
 		"  image stgregistry.suse.com/rancher/fleet-agent:v0.17.0\n", stdout)
