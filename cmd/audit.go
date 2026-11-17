@@ -15,7 +15,7 @@ import (
 
 func newAuditCmd(opts *rootOptions, fetch audit.FetchFunc) (*cobra.Command, error) {
 	var repoDir, registry, output string
-	var plainHTTP bool
+	var plainHTTP, production, legacy bool
 	var creds credentialFlags
 
 	cmd := &cobra.Command{
@@ -38,6 +38,8 @@ func newAuditCmd(opts *rootOptions, fetch audit.FetchFunc) (*cobra.Command, erro
 			report := audit.Run(cmd.Context(), cfg, audit.Options{
 				Dir:         repoDir,
 				Registry:    registry,
+				Production:  production,
+				Legacy:      legacy,
 				PlainHTTP:   plainHTTP,
 				Credentials: given.credentialFunc(cmd.Context()),
 				Fetch:       fetch,
@@ -53,7 +55,9 @@ func newAuditCmd(opts *rootOptions, fetch audit.FetchFunc) (*cobra.Command, erro
 	}
 	flags := cmd.Flags()
 	flags.StringVar(&repoDir, "repo", "", "path of the charts repository, which holds the index.yaml")
-	flags.StringVar(&registry, "registry", "", "registry path the versions are read from, host[:port]/path, instead of the staging registry of the chart")
+	flags.StringVar(&registry, "registry", "", "registry path the versions are read from, host[:port]/path, instead of the registry of the chart")
+	flags.BoolVar(&production, "production", false, "audit against the production registry of each chart instead of the staging one")
+	flags.BoolVar(&legacy, "legacy", false, "audit the legacy versions too, which are left out otherwise")
 	flags.BoolVar(&plainHTTP, "plain-http", false, "talk HTTP to the registry instead of HTTPS, for local registries")
 	flags.StringVarP(&output, "output", "o", outputText, "output format: text or json")
 	creds.addFlags(flags)
