@@ -117,7 +117,7 @@ families:
       - { name: rancher-monitoring-dashboards, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/ob-team-charts }
   - family: rancher-supportability-review
     charts:
-      - { name: rancher-supportability-review, kind: main, edition: rancher-charts }
+      - { name: rancher-supportability-review, kind: main, edition: rancher-charts, upstream: https://github.com/rancher/supportability-review-operator }
       - { name: rancher-supportability-review-crd, kind: crd, edition: rancher-charts }
   - family: rancher-turtles
     charts:
