@@ -2,7 +2,7 @@
 
 Write the `index.yaml` of a charts repository from its `entries/`.
 
-`--repo` is the path of the repository. Each version of a chart is one file, `entries/<chart>/<version>.yaml`, which holds the metadata of the version and the URL it is pulled from. The index lists every entry that is not hidden, the versions of each chart newest first, and nothing else: it is the same bytes every time for the same entries and archives, so the file can be regenerated and compared. Each line has the `created` date of its entry, the date its chart was pushed, which never changes, and `generated` is the newest of them, so it changes only when a version is added. The time `index` runs is never written.
+`--repo` is the path of the repository. Each version of a chart is one file, `entries/<chart>/<version>.yaml`, which holds the metadata of the version and the URL it is pulled from. The index lists every entry that is not withdrawn, the versions of each chart newest first, and nothing else: it is the same bytes every time for the same entries and archives, so the file can be regenerated and compared. Each line has the `created` date of its entry, the date its chart was pushed, which never changes, and `generated` is the newest of them, so it changes only when a version is added. The time `index` runs is never written.
 
 Nothing is written unless every entry is valid: the chart must be listed in `rules.yaml`, the file must be called after the version it holds, and no version may be in two entries. The entries, the `index.yaml` that is already there and the archives in `assets/<chart>/<chart>-<version>.tgz` must also agree: a published version never loses its entry or its archive, an archive never has no entry, and a new entry has no archive yet. See `docs/INDEX.md`.
 
@@ -12,9 +12,9 @@ The icon of a new version of a main chart must be `file://assets/logos/<file>`, 
 
 A new version is then pulled: the archive of the manifest its URL pins is read from the registry, checked to be the chart its entry describes (its `Chart.yaml` has the same metadata as the entry, except the icon), and written to `assets/<chart>/<chart>-<version>.tgz`. Only new versions are pulled. Every line of the index has the `digest` of its archive, the sha256 of the file, and a published archive is never allowed to change. If any new version fails, nothing is written. The archives are written before the index, and are taken back if the index cannot be written. Credentials are optional. Without them the registry is read anonymously, which is right for a public path. To give them, use `--username` (or `CARGUEIRO_USERNAME`) and the password through `CARGUEIRO_PASSWORD`; otherwise the login saved by `cargueiro registry login` is used when it is for this registry. They are sent only to that registry, and over HTTP only with `--plain-http`. `--plain-http` talks HTTP to the registry, for local ones.
 
-An entry with `hide: true` is a published version that must no longer be offered. It is left out of the index, and its entry and archive stay. Hiding is one way: taking `hide: true` off the entry does not publish the version again, and a version that was never published cannot be hidden.
+An entry with `withdrawn: true` is a published version that was withdrawn from the catalog and must no longer be offered. It is left out of the index, and its entry and archive stay. Withdrawing is one way: taking `withdrawn: true` off the entry does not publish the version again, and a version that was never published cannot be withdrawn.
 
-The command prints what it did, one version to a line: `add <chart> <version>` for each version added to the index, then `hide <chart> <version>` for each one left out of it, or `nothing to change`. `--dry-run` prints the same lines for what it would do, and pulls and writes nothing. It does every check that needs no registry, so it cannot check the manifest digest or the archive of a new version. The exit code is 0, or 1 when a check fails.
+The command prints what it did, one version to a line: `add <chart> <version>` for each version added to the index, then `withdraw <chart> <version>` for each one left out of it, or `nothing to change`. `--dry-run` prints the same lines for what it would do, and pulls and writes nothing. It does every check that needs no registry, so it cannot check the manifest digest or the archive of a new version. The exit code is 0, or 1 when a check fails.
 
 A repository with no `entries/` folder has no new entries, because git keeps no empty folder. The versions of the old system are in `legacy/<chart>/<version>.yaml`, the entry of the old index with the `digest` of its archive and a URL that points to the registry. They are listed in the index with the others, newest first, and nothing is checked or pulled for them: they have no archive in `assets/`, and one that appears is an error. A version cannot be in `entries/` and in `legacy/`. The report says `add legacy <chart> <version>` for each one it adds.
 
@@ -28,6 +28,6 @@ cargueiro index --repo ~/charts
 ```
 
 ```
-# see what would be added or hidden, and change nothing
+# see what would be added or withdrawn, and change nothing
 cargueiro index --repo ~/charts --dry-run
 ```

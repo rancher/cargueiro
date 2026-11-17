@@ -86,6 +86,6 @@ The guides in `docs/`:
 | [`DEV_ENV.md`](docs/DEV_ENV.md) | VSCode `settings.json` and `launch.json` snippets to test, lint and debug with the tools that mise pins. |
 | [`AGENTS.md`](docs/AGENTS.md) | Rules for LLM agents. They ask whether the user is a chart owner or a contributor, and contributions made with agents follow its review, style and commit rules. |
 | [`CI.md`](docs/CI.md) | What GitHub Actions checks on every pull request, how a release is built and published, how tool versions and actions are pinned, and the repository settings it relies on. |
-| [`INDEX.md`](docs/INDEX.md) | The rule `cargueiro index` applies to the entries, the `index.yaml` and the archives of a charts repository: what is decided for each version, the digests, hiding and permanence. |
+| [`INDEX.md`](docs/INDEX.md) | The rule `cargueiro index` applies to the entries, the `index.yaml` and the archives of a charts repository: what is decided for each version, the digests, withdrawing and permanence. |
 
 LLM Policy notice: All contributions need a human reviewer responsible for it.
