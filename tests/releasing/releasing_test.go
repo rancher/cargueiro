@@ -246,3 +246,36 @@ func TestReleaseOneFailureDoesNotStopTheOthers(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(production, "legacy", "fleet", "110.0.3+up0.16.3.yaml"))
 	require.FileExists(t, filepath.Join(production, "legacy", "fleet", "110.0.4+up0.16.4.yaml"))
 }
+
+func TestReleaseOnlyTheFamilyGiven(t *testing.T) {
+	source := oldSystem(t, map[string][]string{"fleet": {"110.0.3+up0.16.3"}, "rancher-backup": {"110.0.3+up11.0.4"}}, "old")
+	staging, registry := t.TempDir(), fmt.Sprintf("%s/e2e/%d/staging", harness.OpenRegistry(t), stamp())
+	for _, family := range []string{"fleet", "rancher-backup"} {
+		res := harness.Cargueiro(t, t.TempDir(), "import", "--source", source, "--repo", staging, "--family", family, "--minor", "2.15", "--registry", registry, "--plain-http")
+		require.Zero(t, res.ExitCode, res.Stderr)
+	}
+	production, productionRegistry := t.TempDir(), productionPath(t)
+
+	res := release(t, staging, production, productionRegistry, "--family", "rancher-backup")
+
+	require.Zero(t, res.ExitCode, res.Stdout+res.Stderr)
+	require.Contains(t, res.Stdout, "released rancher-backup 110.0.3+up11.0.4\n")
+	require.NotContains(t, res.Stdout, "released fleet")
+	require.FileExists(t, filepath.Join(production, "legacy", "rancher-backup", "110.0.3+up11.0.4.yaml"))
+	require.NoDirExists(t, filepath.Join(production, "legacy", "fleet"), "the family that was not asked for is left alone")
+
+	t.Run("the other family is released by its own run", func(t *testing.T) {
+		res := release(t, staging, production, productionRegistry, "--family", "fleet")
+
+		require.Zero(t, res.ExitCode, res.Stdout+res.Stderr)
+		require.Contains(t, res.Stdout, "released fleet 110.0.3+up0.16.3\n")
+		require.FileExists(t, filepath.Join(production, "legacy", "fleet", "110.0.3+up0.16.3.yaml"))
+	})
+
+	t.Run("a run with no family finds nothing left", func(t *testing.T) {
+		res := release(t, staging, production, productionRegistry)
+
+		require.Zero(t, res.ExitCode, res.Stderr)
+		require.Equal(t, "nothing to release\n", res.Stdout)
+	})
+}

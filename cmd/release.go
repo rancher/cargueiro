@@ -24,6 +24,7 @@ type releaseRegistryFactory func(guard *oci.Guard, from, to oci.FetchOptions, re
 
 func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobra.Command, error) {
 	var from, repoDir, registry, productionUsername string
+	var families []string
 	var legacy, plainHTTP, dryRun bool
 	var creds credentialFlags
 
@@ -43,7 +44,7 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 			if err != nil {
 				return err
 			}
-			releaseOpts := release.Options{From: from, Repo: repoDir, Registry: registry}
+			releaseOpts := release.Options{From: from, Repo: repoDir, Registry: registry, Families: families}
 			opts.log.DebugContext(cmd.Context(), "releasing", "from", from, "repo", repoDir, "dry-run", dryRun)
 
 			plan, err := release.MakePlan(cfg, releaseOpts)
@@ -78,6 +79,7 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 	flags.BoolVar(&legacy, "legacy", false, "release the legacy versions, the ones in legacy/")
 	flags.StringVar(&from, "from", "", "path of the checkout of the staging charts repository to release from")
 	flags.StringVar(&repoDir, "repo", "", "path of the checkout of the production charts repository to release into")
+	flags.StringSliceVar(&families, "family", nil, "release only the charts of this family, by its name in rules.yaml; it can be given more than once (default: every family)")
 	flags.StringVar(&registry, "registry", "", "registry path the charts are copied to, host[:port]/path, instead of the production registry of the chart")
 	flags.StringVar(&productionUsername, "production-username", "", "username for the production registry (default: $"+envProductionUsername+")")
 	flags.BoolVar(&dryRun, "dry-run", false, "report what would be released, and read and write nothing in a registry or in the repository")
