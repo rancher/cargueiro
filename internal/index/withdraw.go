@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	repo "helm.sh/helm/v4/pkg/repo/v1"
+
+	"github.com/rancher/cargueiro/internal/rules"
 )
 
 // withdrawnLine is what Withdraw adds to an entry.
@@ -23,6 +25,82 @@ const withdrawnLine = "withdrawn: true\n"
 // is withdrawn already, and a version that is not in the index.yaml of the repository. With
 // dryRun it checks all that and writes nothing. It returns the version it withdrew.
 func Withdraw(path string, dryRun bool) (Ref, error) {
+	repoDir, _, err := entryPath(path)
+	if err != nil {
+		return Ref{}, err
+	}
+	published, err := ReadPublished(repoDir)
+	if err != nil {
+		return Ref{}, err
+	}
+	ref, err := checkWithdraw(path, published)
+	if err != nil {
+		return Ref{}, err
+	}
+	if dryRun {
+		return ref, nil
+	}
+	if err := markWithdrawn(path); err != nil {
+		return Ref{}, err
+	}
+	return ref, nil
+}
+
+// WithdrawFamily is Withdraw for every chart of the family of the chart of path, at the
+// version of path: the entries of the siblings are in the same repository, next to it. The
+// family comes from the rules, and its main chart is first in what is returned.
+//
+// Either every entry of the family is withdrawn or none is. All of them are checked first,
+// and the error names every one that is refused, so a family is never left half withdrawn
+// because a sibling had no published version.
+func WithdrawFamily(cfg *rules.Config, path string, dryRun bool) ([]Ref, error) {
+	repoDir, ref, err := entryPath(path)
+	if err != nil {
+		return nil, err
+	}
+	rule, err := cfg.Find(ref.Chart)
+	if err != nil {
+		return nil, err
+	}
+	family, err := cfg.Family(rule.Family)
+	if err != nil {
+		return nil, err
+	}
+	published, err := ReadPublished(repoDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var paths []string
+	var refs []Ref
+	var problems []error
+	for _, name := range family.Names() {
+		entry := filepath.Join(repoDir, EntriesDir, name, ref.Version+".yaml")
+		checked, err := checkWithdraw(entry, published)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		paths = append(paths, entry)
+		refs = append(refs, checked)
+	}
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("the family %s is not withdrawn, and nothing was written: %w", rule.Family, errors.Join(problems...))
+	}
+	if dryRun {
+		return refs, nil
+	}
+	for i, entry := range paths {
+		if err := markWithdrawn(entry); err != nil {
+			return refs[:i], fmt.Errorf("%s %s: %w (withdrawn before it: %d of %d)", refs[i].Chart, refs[i].Version, err, i, len(paths))
+		}
+	}
+	return refs, nil
+}
+
+// checkWithdraw says whether the entry in path can be withdrawn, and returns its version.
+// published is the index.yaml of the repository, nil when it has none.
+func checkWithdraw(path string, published *repo.IndexFile) (Ref, error) {
 	repoDir, ref, err := entryPath(path)
 	if err != nil {
 		return Ref{}, err
@@ -34,29 +112,23 @@ func Withdraw(path string, dryRun bool) (Ref, error) {
 	if entry.Withdrawn {
 		return Ref{}, fmt.Errorf("%s %s is withdrawn already", ref.Chart, ref.Version)
 	}
-
-	published, err := ReadPublished(repoDir)
-	if err != nil {
-		return Ref{}, err
-	}
 	if published == nil || !isListed(published.Entries, ref) {
 		return Ref{}, fmt.Errorf("%s %s is not published: it is not in %s of %s, and only a published version can be withdrawn", ref.Chart, ref.Version, File, repoDir)
 	}
-	if dryRun {
-		return ref, nil
-	}
+	return ref, nil
+}
 
+// markWithdrawn adds the mark to the entry in path, with a newline first when the file has
+// none.
+func markWithdrawn(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Ref{}, fmt.Errorf("read entry: %w", err)
+		return fmt.Errorf("read entry: %w", err)
 	}
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
-	if err := replaceFile(path, append(data, withdrawnLine...)); err != nil {
-		return Ref{}, err
-	}
-	return ref, nil
+	return replaceFile(path, append(data, withdrawnLine...))
 }
 
 // entryPath splits entries/<chart>/<version>.yaml, with whatever folder holds entries/ in

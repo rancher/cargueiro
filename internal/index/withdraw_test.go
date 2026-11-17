@@ -3,6 +3,7 @@ package index
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -143,5 +144,117 @@ func TestWithdrawRefuses(t *testing.T) {
 		_, err := Withdraw(path, false)
 
 		require.ErrorContains(t, err, `unknown field "hide"`)
+	})
+}
+
+const familyVersion = "111.0.3+up0.17.3"
+
+// familyEntry is the entry of a chart of the fleet family at familyVersion.
+func familyEntry(chart string) string {
+	text := entryText(familyVersion, pinnedOne)
+	text = strings.Replace(text, "name: fleet\n", "name: "+chart+"\n", 1)
+	return strings.Replace(text, "/fleet:", "/"+chart+":", 1)
+}
+
+// familyRepo is a repository where the three charts of the fleet family have a published
+// version, and returns the path of the entry of chart.
+func familyRepo(t *testing.T, chart string) (string, func(chart string) string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	index := "apiVersion: v1\nentries:\n"
+	files := map[string]string{}
+	for _, name := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		files["entries/"+name+"/"+familyVersion+".yaml"] = familyEntry(name)
+		index += "  " + name + ":\n  - name: " + name + "\n    version: " + familyVersion + "\n"
+	}
+	files["index.yaml"] = index + "generated: \"2026-11-11T17:33:45Z\"\n"
+	writeFiles(t, dir, files)
+	entry := func(name string) string { return filepath.Join(dir, "entries", name, familyVersion+".yaml") }
+	return entry(chart), entry
+}
+
+func TestWithdrawFamily(t *testing.T) {
+	path, entry := familyRepo(t, "fleet-crd")
+
+	refs, err := WithdrawFamily(loadRules(t), path, false)
+
+	require.NoError(t, err)
+	require.Equal(t, []Ref{
+		{Chart: "fleet", Version: familyVersion},
+		{Chart: "fleet-agent", Version: familyVersion},
+		{Chart: "fleet-crd", Version: familyVersion},
+	}, refs, "the main chart is first, whichever entry was given")
+	for _, name := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		require.Equal(t, familyEntry(name)+"withdrawn: true\n", readText(t, entry(name)))
+	}
+}
+
+func TestWithdrawFamilyDryRunWritesNothing(t *testing.T) {
+	path, entry := familyRepo(t, "fleet")
+
+	refs, err := WithdrawFamily(loadRules(t), path, true)
+
+	require.NoError(t, err)
+	require.Len(t, refs, 3)
+	for _, name := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		require.Equal(t, familyEntry(name), readText(t, entry(name)))
+	}
+}
+
+func TestWithdrawFamilyWritesNothingWhenOneIsRefused(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(t *testing.T, entry func(string) string)
+		wantErr string
+	}{
+		{"a sibling with no entry", func(t *testing.T, entry func(string) string) {
+			require.NoError(t, os.Remove(entry("fleet-agent")))
+		}, "fleet-agent"},
+		{"a sibling that is withdrawn already", func(t *testing.T, entry func(string) string) {
+			require.NoError(t, os.WriteFile(entry("fleet-crd"), []byte(familyEntry("fleet-crd")+"withdrawn: true\n"), 0o600))
+		}, "fleet-crd " + familyVersion + " is withdrawn already"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, entry := familyRepo(t, "fleet")
+			tt.mutate(t, entry)
+
+			_, err := WithdrawFamily(loadRules(t), path, false)
+
+			require.ErrorContains(t, err, "the family fleet is not withdrawn, and nothing was written")
+			require.ErrorContains(t, err, tt.wantErr)
+			require.Equal(t, familyEntry("fleet"), readText(t, entry("fleet")), "the others are not written either")
+		})
+	}
+
+	t.Run("a sibling that is not published", func(t *testing.T) {
+		path, entry := familyRepo(t, "fleet")
+		dir := filepath.Dir(filepath.Dir(filepath.Dir(path)))
+		index := readText(t, filepath.Join(dir, "index.yaml"))
+		index = strings.Replace(index, "  fleet-crd:\n  - name: fleet-crd\n    version: "+familyVersion+"\n", "", 1)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "index.yaml"), []byte(index), 0o600))
+
+		_, err := WithdrawFamily(loadRules(t), path, false)
+
+		require.ErrorContains(t, err, "fleet-crd "+familyVersion+" is not published")
+		require.Equal(t, familyEntry("fleet"), readText(t, entry("fleet")))
+	})
+}
+
+func TestWithdrawFamilyRefuses(t *testing.T) {
+	t.Run("a chart that is not in the rules", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "entries", "nope", "1.0.0.yaml")
+
+		_, err := WithdrawFamily(loadRules(t), path, false)
+
+		require.ErrorContains(t, err, `chart "nope" is not listed in the rules file`)
+	})
+
+	t.Run("a path that is not an entry", func(t *testing.T) {
+		_, err := WithdrawFamily(loadRules(t), filepath.Join(t.TempDir(), "index.yaml"), false)
+
+		require.ErrorContains(t, err, "is not an entry")
 	})
 }
