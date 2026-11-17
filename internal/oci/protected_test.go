@@ -406,3 +406,31 @@ func TestReadIdentity(t *testing.T) {
 	_, _, err = ReadIdentity("/no/such/archive.tgz")
 	require.ErrorContains(t, err, "read archive /no/such/archive.tgz")
 }
+
+func TestCheckImageRepository(t *testing.T) {
+	guard := newTestGuard(t)
+
+	tests := []struct {
+		name    string
+		target  Target
+		wantErr string
+	}{
+		{"the staging images repository", Target{Host: "stgregistry.suse.com", Path: "rancher"}, ""},
+		{"the production images repository", Target{Host: "registry.suse.com", Path: "rancher"}, ""},
+		{"the host and the path in other case", Target{Host: "REGISTRY.suse.com:443", Path: "Rancher"}, ""},
+		{"a registry that is not SUSE's allows everything", Target{Host: "127.0.0.1:5000", Path: "anything"}, ""},
+		{"a chart repository", Target{Host: "registry.suse.com", Path: "rancher/catalog"}, "an image can only go to"},
+		{"a path that is nothing", Target{Host: "registry.suse.com", Path: "other"}, "an image can only go to"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := guard.CheckImageRepository(tt.target)
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
