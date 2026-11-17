@@ -40,11 +40,22 @@ type Result struct {
 	// whose tag holds other content in production.
 	Failed    []Failure
 	Conflicts []Conflict
+	// ImagesCopied and ImagesPresent count the images of the charts that were copied to
+	// production, and the ones it had already, which are not touched.
+	ImagesCopied, ImagesPresent int
 }
 
 // Done says whether every version of the plan was released.
 func (r Result) Done() bool {
 	return len(r.Failed) == 0 && len(r.Conflicts) == 0
+}
+
+// imagesLine says what happened to the images, or nothing when no chart listed any.
+func (r Result) imagesLine() string {
+	if r.ImagesCopied+r.ImagesPresent == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\nimages: copied %d, already in production %d", r.ImagesCopied, r.ImagesPresent)
 }
 
 // Summary says what was done in a few lines. What did not go through comes last
@@ -54,9 +65,10 @@ func (r Result) Summary() string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "released %d versions, adopted %d", len(r.Released), len(r.Adopted))
 	if r.Done() {
-		return out.String() + "\n"
+		return out.String() + r.imagesLine() + "\n"
 	}
 	fmt.Fprintf(&out, ", failed %d, in conflict %d\n", len(r.Failed), len(r.Conflicts))
+	out.WriteString(strings.TrimSuffix(r.imagesLine(), "\n") + "\n")
 	if len(r.Conflicts) > 0 {
 		fmt.Fprintf(&out, "\nCONFLICT: %d versions are in the production registry with other content than staging's, and were not touched. A tag is never overwritten: someone has to look at each one.\n", len(r.Conflicts))
 		for _, c := range r.Conflicts {
@@ -100,7 +112,7 @@ func Run(ctx context.Context, opts Options, plan Plan, reg Registry, report io.W
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		line, err := releaseVersion(ctx, opts.Repo, item, reg, &result)
+		line, err := releaseVersion(ctx, opts.Repo, item, reg, &result, report)
 		if err != nil {
 			return result, err
 		}
@@ -113,11 +125,25 @@ func Run(ctx context.Context, opts Options, plan Plan, reg Registry, report io.W
 
 // releaseVersion releases a version, records what happened in result and returns the
 // line that says it. The error is only for a failure to say it.
-func releaseVersion(ctx context.Context, repoDir string, item Item, reg Registry, result *Result) (string, error) {
+func releaseVersion(ctx context.Context, repoDir string, item Item, reg Registry, result *Result, report io.Writer) (string, error) {
 	name := fmt.Sprintf("%s %s", item.Chart, item.Entry.Version)
 	fail := func(err error) (string, error) {
 		result.Failed = append(result.Failed, Failure{Item: item, Err: err})
 		return fmt.Sprintf("failed %s: %v", name, err), nil
+	}
+
+	// A new version is checked before anything of it is copied, so that nothing invalid
+	// reaches production, and its images come before its chart, so that the chart is never
+	// in production without them.
+	if item.Validate {
+		if err := reg.Validate(ctx, item); err != nil {
+			return fail(err)
+		}
+	}
+	for _, image := range item.Images {
+		if err := releaseImage(ctx, image, reg, result, report); err != nil {
+			return fail(err)
+		}
 	}
 
 	did := "adopted"
@@ -151,19 +177,66 @@ func releaseVersion(ctx context.Context, repoDir string, item Item, reg Registry
 	return did + " " + name, nil
 }
 
-// writeEntry writes the legacy entry of a version: the entry of staging as it is,
-// with the URL that points to the manifest in the production registry. It never
-// replaces a file.
-func writeEntry(repoDir string, item Item) error {
-	entry := *item.Entry
-	entry.URLs = []string{"oci://" + item.Destination.String() + "@" + item.ManifestDigest}
-	data, err := yaml.Marshal(&entry)
+// releaseImage makes sure an image is in the production registry. An image that is there is
+// left alone, whatever it holds: it is not copied again, replaced or called a failure. One
+// that is not is copied by its digest from the staging registry and read back. An image
+// that is in neither registry is an error, because the chart would be released without it.
+func releaseImage(ctx context.Context, image Image, reg Registry, result *Result, report io.Writer) error {
+	_, err := reg.ProductionImage(ctx, image.Destination)
+	switch {
+	case err == nil:
+		result.ImagesPresent++
+		return say(report, "image present %s\n", image.Destination)
+	case !errors.Is(err, oci.ErrNotFound):
+		return fmt.Errorf("read the image %s: %w", image.Destination, err)
+	}
+
+	digest, err := reg.StagingImage(ctx, image.Source)
+	if errors.Is(err, oci.ErrNotFound) {
+		return fmt.Errorf("the image %s is in neither registry: it is not in %s", image.Destination, image.Source)
+	}
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", item.Chart, item.Entry.Version, err)
+		return fmt.Errorf("read the image %s: %w", image.Source, err)
+	}
+	if err := reg.CopyImage(ctx, image, digest); err != nil {
+		return fmt.Errorf("copy the image %s: %w", image.Source, err)
+	}
+	got, err := reg.ProductionImage(ctx, image.Destination)
+	if err != nil {
+		return fmt.Errorf("read the image %s after it was copied: %w", image.Destination, err)
+	}
+	if got != digest {
+		return fmt.Errorf("the image %s has the manifest %s after the copy, and staging has %s", image.Destination, got, digest)
+	}
+	result.ImagesCopied++
+	return say(report, "image copied %s\n", image.Destination)
+}
+
+// writeEntry writes the entry of a version to the production repository, to the folder of
+// the item, and never replaces a file. The URL of the entry points to the manifest in the
+// production registry. A new version is written from the bytes of the staging entry with
+// only the URL changed, and a legacy one from its entry, which is the entry of the old
+// index.
+func writeEntry(repoDir string, item Item) error {
+	url := "oci://" + item.Destination.String() + "@" + item.ManifestDigest
+	var data []byte
+	if item.Raw != nil {
+		old := item.Entry.URLs[0]
+		if strings.Count(string(item.Raw), old) != 1 {
+			return fmt.Errorf("the entry of %s %s does not have its url once, so it cannot be moved", item.Chart, item.Entry.Version)
+		}
+		data = []byte(strings.Replace(string(item.Raw), old, url, 1))
+	} else {
+		entry := *item.Entry
+		entry.URLs = []string{url}
+		var err error
+		if data, err = yaml.Marshal(&entry); err != nil {
+			return fmt.Errorf("%s %s: %w", item.Chart, item.Entry.Version, err)
+		}
 	}
 
 	var batch fsutil.Batch
-	path := filepath.Join(repoDir, index.LegacyDir, item.Chart, item.Entry.Version+".yaml")
+	path := filepath.Join(repoDir, item.Dir, item.Chart, item.Entry.Version+".yaml")
 	if err := batch.Write(path, data); err != nil {
 		return fmt.Errorf("write the entry of %s %s: %w", item.Chart, item.Entry.Version, err)
 	}

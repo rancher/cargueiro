@@ -20,17 +20,30 @@ import (
 
 // fakeRegistry is the production registry: the manifest digest of each ref it has.
 // A ref in copyFails fails to copy, a ref in lost is copied and then not found, and
-// a ref in wrong is copied as another manifest.
+// a ref in wrong is copied as another manifest. It is also the images: the ones of staging
+// and of production by ref, with what makes them fail, and the order of what was done.
 type fakeRegistry struct {
 	has       map[string]string
 	copyFails map[string]error
 	lost      map[string]bool
 	wrong     map[string]string
 	copied    []string
+
+	stagingImages    map[string]string
+	images           map[string]string
+	invalid          map[string]error
+	imageCopyFails   map[string]error
+	wrongImage       map[string]string
+	stagingImageFail map[string]error
+	calls            []string
 }
 
 func newFakeRegistry() *fakeRegistry {
-	return &fakeRegistry{has: map[string]string{}, copyFails: map[string]error{}, lost: map[string]bool{}, wrong: map[string]string{}}
+	return &fakeRegistry{
+		has: map[string]string{}, copyFails: map[string]error{}, lost: map[string]bool{}, wrong: map[string]string{},
+		stagingImages: map[string]string{}, images: map[string]string{}, invalid: map[string]error{},
+		imageCopyFails: map[string]error{}, wrongImage: map[string]string{}, stagingImageFail: map[string]error{},
+	}
 }
 
 func (f *fakeRegistry) Inspect(_ context.Context, ref string) (oci.ManifestInfo, error) {
@@ -47,6 +60,7 @@ func (f *fakeRegistry) Copy(_ context.Context, item Item) error {
 		return err
 	}
 	f.copied = append(f.copied, ref)
+	f.calls = append(f.calls, "chart "+ref)
 	switch {
 	case f.lost[ref]:
 	case f.wrong[ref] != "":
@@ -54,6 +68,44 @@ func (f *fakeRegistry) Copy(_ context.Context, item Item) error {
 	default:
 		f.has[ref] = item.ManifestDigest
 	}
+	return nil
+}
+
+func (f *fakeRegistry) Validate(_ context.Context, item Item) error {
+	f.calls = append(f.calls, "validate "+item.Chart)
+	return f.invalid[item.Chart+" "+item.Entry.Version]
+}
+
+func (f *fakeRegistry) StagingImage(_ context.Context, image oci.ChartRef) (string, error) {
+	if err := f.stagingImageFail[image.String()]; err != nil {
+		return "", err
+	}
+	digest, ok := f.stagingImages[image.String()]
+	if !ok {
+		return "", fmt.Errorf("%s: %w", image, oci.ErrNotFound)
+	}
+	return digest, nil
+}
+
+func (f *fakeRegistry) ProductionImage(_ context.Context, image oci.ChartRef) (string, error) {
+	digest, ok := f.images[image.String()]
+	if !ok {
+		return "", fmt.Errorf("%s: %w", image, oci.ErrNotFound)
+	}
+	return digest, nil
+}
+
+func (f *fakeRegistry) CopyImage(_ context.Context, image Image, digest string) error {
+	ref := image.Destination.String()
+	if err := f.imageCopyFails[ref]; err != nil {
+		return err
+	}
+	f.calls = append(f.calls, "image "+ref)
+	if wrong := f.wrongImage[ref]; wrong != "" {
+		f.images[ref] = wrong
+		return nil
+	}
+	f.images[ref] = digest
 	return nil
 }
 

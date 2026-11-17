@@ -91,6 +91,22 @@ func (g *Guard) Check(t Target, name string) error {
 	return g.checkImage(where, name)
 }
 
+// CheckImageRepository refuses pushing an image to t when t is on a SUSE registry and
+// is not one of its image repositories. Check decides by the name of what is pushed,
+// and an image can have the name of a chart (rancher/rancher-webhook is an image and
+// rancher-webhook is a chart), so it would refuse an image for the chart's name. This
+// looks only at where the image goes, and makes no network call.
+func (g *Guard) CheckImageRepository(t Target) error {
+	if !g.Guarded(t) {
+		return nil
+	}
+	where := Target{Host: normalizeHost(t.Host), Path: strings.ToLower(t.Path)}
+	if slices.Contains(g.images, where) {
+		return nil
+	}
+	return refused("an image can only go to %s, not to %s", listRepositories(g.images, where.Host), location(t))
+}
+
 // checkChart allows a chart in a repository of its edition.
 func (g *Guard) checkChart(t, where Target, name, edition string) error {
 	if slices.Contains(g.charts[edition], where) {
