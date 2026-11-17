@@ -19,8 +19,8 @@ type Ref struct {
 type State struct {
 	// Entries are the versions that have an entry file.
 	Entries []Ref
-	// Hidden are the entries that are marked hide. They are a part of Entries.
-	Hidden []Ref
+	// Withdrawn are the entries that are marked withdrawn. They are a part of Entries.
+	Withdrawn []Ref
 	// Published are the versions listed in the index.yaml that is committed.
 	Published []Ref
 	// Archives are the versions that have a .tgz in assets/.
@@ -38,13 +38,13 @@ type Plan struct {
 	// AddLegacy are the legacy versions to add. Nothing is checked or pulled for
 	// them, because they are written as they were published.
 	AddLegacy []Ref
-	Hide      []Ref
+	Withdraw  []Ref
 }
 
 // Report says what the plan does, one version to a line: the ones to add, then
-// the legacy ones to add, then the ones to hide. A plan that does nothing says so.
+// the legacy ones to add, then the ones to withdraw. A plan that does nothing says so.
 func (p Plan) Report() string {
-	if len(p.Add) == 0 && len(p.AddLegacy) == 0 && len(p.Hide) == 0 {
+	if len(p.Add) == 0 && len(p.AddLegacy) == 0 && len(p.Withdraw) == 0 {
 		return "nothing to change\n"
 	}
 
@@ -55,24 +55,24 @@ func (p Plan) Report() string {
 	for _, ref := range p.AddLegacy {
 		fmt.Fprintf(&report, "add legacy %s %s\n", ref.Chart, ref.Version)
 	}
-	for _, ref := range p.Hide {
-		fmt.Fprintf(&report, "hide %s %s\n", ref.Chart, ref.Version)
+	for _, ref := range p.Withdraw {
+		fmt.Fprintf(&report, "withdraw %s %s\n", ref.Chart, ref.Version)
 	}
 	return report.String()
 }
 
 // Plan works out what to do, with each list sorted by chart and then by version.
 //
-// A legacy version is never hidden, has no archive, and is added when it is not in
+// A legacy version is never withdrawn, has no archive, and is added when it is not in
 // the index yet. It cannot also be an entry.
 //
-// A version is never removed once it is in the index, other than by hiding it,
+// A version is never removed once it is in the index, other than by withdrawing it,
 // and the index and assets/ never hold what the entries do not. So Plan fails,
 // naming every version at fault, when the three places disagree in any other
-// way. Hiding is one way: a version that is out of the index but has an archive
-// and an entry that is not hidden is a new entry that already has an archive.
+// way. Withdrawing is one way: a version that is out of the index but has an archive
+// and an entry that is not withdrawn is a new entry that already has an archive.
 func (s State) Plan() (Plan, error) {
-	entries, hidden := refSet(s.Entries), refSet(s.Hidden)
+	entries, withdrawn := refSet(s.Entries), refSet(s.Withdrawn)
 	published, archives := refSet(s.Published), refSet(s.Archives)
 	legacy := refSet(s.Legacy)
 
@@ -85,7 +85,7 @@ func (s State) Plan() (Plan, error) {
 	for _, ref := range all {
 		_, entry := entries[ref]
 		_, isLegacy := legacy[ref]
-		_, isHidden := hidden[ref]
+		_, isWithdrawn := withdrawn[ref]
 		_, indexed := published[ref]
 		_, archived := archives[ref]
 
@@ -104,12 +104,12 @@ func (s State) Plan() (Plan, error) {
 			problems = append(problems, fmt.Errorf("assets/ has an archive of %s %s but there is no entry for it", ref.Chart, ref.Version))
 		case indexed && !archived:
 			problems = append(problems, fmt.Errorf("%s %s is in index.yaml but has no archive in assets/", ref.Chart, ref.Version))
-		case isHidden && !indexed && !archived:
-			problems = append(problems, fmt.Errorf("%s %s is hidden but was never published: it is not in index.yaml and has no archive in assets/", ref.Chart, ref.Version))
-		case isHidden && indexed:
-			plan.Hide = append(plan.Hide, ref)
-		case isHidden:
-			// Hidden already: out of the index, with its archive kept.
+		case isWithdrawn && !indexed && !archived:
+			problems = append(problems, fmt.Errorf("%s %s is withdrawn but was never published: it is not in index.yaml and has no archive in assets/", ref.Chart, ref.Version))
+		case isWithdrawn && indexed:
+			plan.Withdraw = append(plan.Withdraw, ref)
+		case isWithdrawn:
+			// Withdrawn already: out of the index, with its archive kept.
 		case archived && !indexed:
 			problems = append(problems, fmt.Errorf("%s %s is not in index.yaml yet but already has an archive in assets/", ref.Chart, ref.Version))
 		case !indexed:

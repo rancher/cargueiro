@@ -59,7 +59,7 @@ func sameEntry(a, b *repo.ChartVersion) (bool, error) {
 // checkUnchanged fails when an entry no longer matches the line the published
 // index has for its version, naming every version that does not.
 //
-// Only change allowed is the `hide: true` field to remove the entry from the index.yaml
+// Only change allowed is the `withdrawn: true` field to remove the entry from the index.yaml
 func checkUnchanged(published, regenerated *repo.IndexFile) error {
 	changed, err := changedRefs(published, regenerated)
 	if err != nil {

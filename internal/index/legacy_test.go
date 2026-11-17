@@ -144,9 +144,9 @@ func TestWriteLegacyFails(t *testing.T) {
 			wantErr: "which is a legacy version: it has none",
 		},
 		{
-			name:    "a hidden legacy entry",
-			files:   map[string]string{"legacy/fleet/" + legacyVersion + ".yaml": legacyText(legacyVersion, legacyDigest, legacyURL) + "hide: true\n"},
-			wantErr: "legacy entry fleet/" + legacyVersion + ".yaml cannot be hidden",
+			name:    "a withdrawn legacy entry",
+			files:   map[string]string{"legacy/fleet/" + legacyVersion + ".yaml": legacyText(legacyVersion, legacyDigest, legacyURL) + "withdrawn: true\n"},
+			wantErr: "legacy entry fleet/" + legacyVersion + ".yaml cannot be withdrawn",
 		},
 		{
 			name:    "a digest that is not the sha256 of an archive",

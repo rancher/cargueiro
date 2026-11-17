@@ -46,7 +46,7 @@ func newIndexCmd(opts *rootOptions) (*cobra.Command, error) {
 	flags := cmd.Flags()
 	flags.StringVar(&repoDir, "repo", "", "path of the charts repository, which holds entries/ and gets the index.yaml")
 	flags.StringVar(&registry, "registry", "", "registry path the URLs of new versions must point to, host[:port]/path, instead of the staging registry of the chart")
-	flags.BoolVar(&dryRun, "dry-run", false, "check and print what would be added or hidden, and pull and write nothing")
+	flags.BoolVar(&dryRun, "dry-run", false, "check and print what would be added or withdrawn, and pull and write nothing")
 	flags.BoolVar(&plainHTTP, "plain-http", false, "talk HTTP to the registry instead of HTTPS, for local registries")
 	creds.addFlags(flags)
 	if err := applyDoc(cmd, "index"); err != nil {

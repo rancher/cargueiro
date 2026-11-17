@@ -6,7 +6,7 @@ Release the versions of the staging charts repository to the production one.
 
 ## New versions
 
-The versions to release are the ones in the `entries/` of staging that production has neither in its `entries/` nor in its `index.yaml`. Two kinds are left out and said so, as `skip <chart> <version>: <reason>`: a hidden version (`hide: true`), and a release candidate, a version that ends in `-rc.N`, `-beta.N` or `-alpha.N`, which stay on staging. A version with a `-rancher.N` ending is a final version and is released.
+The versions to release are the ones in the `entries/` of staging that production has neither in its `entries/` nor in its `index.yaml`. Two kinds are left out and said so, as `skip <chart> <version>: <reason>`: a withdrawn version (`withdrawn: true`), and a release candidate, a version that ends in `-rc.N`, `-beta.N` or `-alpha.N`, which stay on staging. A version with a `-rancher.N` ending is a final version and is released.
 
 Each version goes through the same steps, and the entry is written last, so a run that stops anywhere is run again to finish:
 

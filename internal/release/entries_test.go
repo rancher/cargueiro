@@ -11,10 +11,10 @@ import (
 
 // stagedOptions are what writeStaged takes for the entry it writes.
 type stagedOptions struct {
-	hide   bool
-	images string
-	icon   string
-	url    string
+	withdrawn bool
+	images    string
+	icon      string
+	url       string
 }
 
 // writeStaged writes the entry of a new version into dir, as ship does: pinned to a manifest
@@ -40,8 +40,8 @@ func writeStaged(t *testing.T, dir, chartName, version string, o stagedOptions) 
 	if o.icon != "" {
 		b.WriteString("icon: " + o.icon + "\n")
 	}
-	if o.hide {
-		b.WriteString("hide: true\n")
+	if o.withdrawn {
+		b.WriteString("withdrawn: true\n")
 	}
 	fmt.Fprintf(&b, "urls:\n- %s\n", url)
 	writeFile(t, filepath.Join(dir, "entries", chartName, version+".yaml"), b.String())
@@ -63,7 +63,7 @@ func TestMakeEntriesPlan(t *testing.T) {
 	writeStaged(t, staging, "fleet", "111.0.1+up0.17.0-rc.4", stagedOptions{})
 	writeStaged(t, staging, "fleet", "111.0.0+up0.16.0-beta.1", stagedOptions{})
 	writeStaged(t, staging, "fleet", "111.0.0+up0.15.0-alpha.3", stagedOptions{})
-	writeStaged(t, staging, "fleet", "111.0.3+up0.17.1", stagedOptions{hide: true})
+	writeStaged(t, staging, "fleet", "111.0.3+up0.17.1", stagedOptions{withdrawn: true})
 	writeStaged(t, staging, "rancher-monitoring", "111.0.0+up80.9.1-rancher.23", stagedOptions{})
 	cfg := loadRules(t)
 
@@ -76,7 +76,7 @@ func TestMakeEntriesPlan(t *testing.T) {
 		"fleet 111.0.0+up0.15.0-alpha.3: release candidate",
 		"fleet 111.0.0+up0.16.0-beta.1: release candidate",
 		"fleet 111.0.1+up0.17.0-rc.4: release candidate",
-		"fleet 111.0.3+up0.17.1: hidden",
+		"fleet 111.0.3+up0.17.1: withdrawn",
 	}, skipped(plan))
 
 	first := plan.Release[0]

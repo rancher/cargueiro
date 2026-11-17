@@ -8,16 +8,16 @@ Every version of a chart is seen from three places. The entry, `entries/<chart>/
 
 ## What is decided for each version
 
-| Entry | Hidden | In the index | Archive | Result |
+| Entry | Withdrawn | In the index | Archive | Result |
 |-------|--------|--------------|---------|--------|
 | yes | no | no | no | new: to be published |
 | yes | no | yes | yes | published: nothing to do |
 | yes | no | yes | no | error: the index lists it but the archive is missing |
 | yes | no | no | yes | error: a new entry must not have an archive yet |
-| yes | yes | yes | yes | to be hidden: taken out of the index |
-| yes | yes | no | yes | hidden: nothing to do |
+| yes | yes | yes | yes | to be withdrawn: taken out of the index |
+| yes | yes | no | yes | withdrawn: nothing to do |
 | yes | yes | yes | no | error: the index lists it but the archive is missing |
-| yes | yes | no | no | error: only a published version can be hidden |
+| yes | yes | no | no | error: only a published version can be withdrawn |
 | no | | yes | any | error: entries are never removed |
 | no | | no | yes | error: an archive with no entry |
 
@@ -33,7 +33,7 @@ The versions of the old system are not made by the new one: they are imported as
 | yes | yes | no | published: nothing to do |
 | yes | any | yes | error: a legacy version has no archive |
 
-A version that is in `entries/` and in `legacy/` is an error. A legacy entry is read strictly, must be called after its version, and must have the `digest` of its archive and exactly one URL, an `oci://` reference. It cannot be hidden. The chart must be in `rules.yaml`, so that its versions can be put in order. The versions of the two folders are listed together in the index, newest first, and a published legacy line never changes, like any other.
+A version that is in `entries/` and in `legacy/` is an error. A legacy entry is read strictly, must be called after its version, and must have the `digest` of its archive and exactly one URL, an `oci://` reference. It cannot be withdrawn. The chart must be in `rules.yaml`, so that its versions can be put in order. The versions of the two folders are listed together in the index, newest first, and a published legacy line never changes, like any other.
 
 ## The digest
 
@@ -43,10 +43,10 @@ Every line of the index has a `digest`: the sha256 of the archive of its version
 
 The checks that need no registry come first: the table above, the digest of every published archive, that no published entry changed, and the URL and icon of every new version. Only then are the new versions pulled, each from the manifest its URL pins, and checked to be the chart its entry describes. The archives are written to `assets/` and the index is written last. If a pull or a check fails nothing is written, and if the index cannot be written the archives are taken back. With `--dry-run` it stops after the checks that need no registry.
 
-## Hiding
+## Withdrawing
 
-An entry with `hide: true` is a version that has been published and must no longer be offered, for example because of a critical CVE. It is taken out of the index and nothing else is removed: the entry and the archive stay. Hiding is the only way a line leaves the index, and it is one way. Taking `hide: true` off an entry does not publish the version again: the version is then a new entry that already has an archive, which is an error.
+An entry with `withdrawn: true` is a version that has been published and must no longer be offered, for example because of a critical CVE. It is taken out of the index and nothing else is removed: the entry and the archive stay. Withdrawing is the only way a line leaves the index, and it is one way. Taking `withdrawn: true` off an entry does not publish the version again: the version is then a new entry that already has an archive, which is an error.
 
 ## Permanence
 
-A version that has been published is never removed, and the line it has in the index never changes, its `created` date included, except that hiding takes it out. Its archive never changes either. This is why a published version without its entry is an error and not a cleanup, and why a new entry that already has an archive is refused instead of being overwritten.
+A version that has been published is never removed, and the line it has in the index never changes, its `created` date included, except that withdrawing it takes it out. Its archive never changes either. This is why a published version without its entry is an error and not a cleanup, and why a new entry that already has an archive is refused instead of being overwritten.

@@ -73,6 +73,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`stamp`](cmd/docs/stamp.md) | Put the final version and the helm.sh/images annotation on a chart directory. |
 | [`upstream-repos`](cmd/docs/upstream-repos.md) | List the upstream repository of every main chart of the `rancher-charts` edition in `rules.yaml`. |
 | [`version`](cmd/docs/version.md) | Print the cargueiro version. |
+| [`withdraw`](cmd/docs/withdraw.md) | Withdraw a published version from the catalog. |
 <!-- COMMANDS:END -->
 
 ## Documentation
@@ -86,6 +87,6 @@ The guides in `docs/`:
 | [`DEV_ENV.md`](docs/DEV_ENV.md) | VSCode `settings.json` and `launch.json` snippets to test, lint and debug with the tools that mise pins. |
 | [`AGENTS.md`](docs/AGENTS.md) | Rules for LLM agents. They ask whether the user is a chart owner or a contributor, and contributions made with agents follow its review, style and commit rules. |
 | [`CI.md`](docs/CI.md) | What GitHub Actions checks on every pull request, how a release is built and published, how tool versions and actions are pinned, and the repository settings it relies on. |
-| [`INDEX.md`](docs/INDEX.md) | The rule `cargueiro index` applies to the entries, the `index.yaml` and the archives of a charts repository: what is decided for each version, the digests, hiding and permanence. |
+| [`INDEX.md`](docs/INDEX.md) | The rule `cargueiro index` applies to the entries, the `index.yaml` and the archives of a charts repository: what is decided for each version, the digests, withdrawing and permanence. |
 
 LLM Policy notice: All contributions need a human reviewer responsible for it.

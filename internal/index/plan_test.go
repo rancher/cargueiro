@@ -33,17 +33,17 @@ func TestPlanReport(t *testing.T) {
 			want: "add legacy fleet 1\n",
 		},
 		{
-			name: "versions to hide",
-			plan: Plan{Hide: []Ref{{Chart: "fleet", Version: "1"}}},
-			want: "hide fleet 1\n",
+			name: "versions to withdraw",
+			plan: Plan{Withdraw: []Ref{{Chart: "fleet", Version: "1"}}},
+			want: "withdraw fleet 1\n",
 		},
 		{
 			name: "both, the additions first",
 			plan: Plan{
-				Add:  []Ref{{Chart: "alerting", Version: "9"}},
-				Hide: []Ref{{Chart: "fleet", Version: "1"}},
+				Add:      []Ref{{Chart: "alerting", Version: "9"}},
+				Withdraw: []Ref{{Chart: "fleet", Version: "1"}},
 			},
-			want: "add alerting 9\nhide fleet 1\n",
+			want: "add alerting 9\nwithdraw fleet 1\n",
 		},
 	}
 

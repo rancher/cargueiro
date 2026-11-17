@@ -99,7 +99,7 @@ annotations:
 
 // newStaging prepares what a release of new versions needs: the chart and its two images in
 // the staging registry, and a staging repository with its entry, a release candidate and a
-// hidden version. It returns the repository and the paths in the registries.
+// withdrawn version. It returns the repository and the paths in the registries.
 type newStaging struct {
 	repo                          string
 	chartsRegistry, imagesStaging string
@@ -141,7 +141,7 @@ func stageNewVersion(t *testing.T) newStaging {
 	}
 	entry(fleetVersion, "")
 	entry("111.0.1+up0.17.0-rc.4", "")
-	entry("111.0.3+up0.17.1", "hide: true\n")
+	entry("111.0.3+up0.17.1", "withdrawn: true\n")
 	return s
 }
 
@@ -166,7 +166,7 @@ func TestReleaseNewVersionsCopiesTheChartAndItsImages(t *testing.T) {
 	dry := releaseNew(t, s, production, prod, "--dry-run")
 	require.Zero(t, dry.ExitCode, dry.Stderr)
 	require.Contains(t, dry.Stdout, "skip fleet 111.0.1+up0.17.0-rc.4: release candidate\n")
-	require.Contains(t, dry.Stdout, "skip fleet 111.0.3+up0.17.1: hidden\n")
+	require.Contains(t, dry.Stdout, "skip fleet 111.0.3+up0.17.1: withdrawn\n")
 	require.Contains(t, dry.Stdout, "release fleet "+fleetVersion+"\n")
 	require.NoDirExists(t, filepath.Join(production, "entries"), "a dry run writes nothing")
 

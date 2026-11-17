@@ -105,25 +105,25 @@ func addArchive(t *testing.T, repo, chart, version string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, chart+"-"+version+".tgz"), nil, 0o600))
 }
 
-// hideEntry marks the entry of a version of a chart as hidden.
-func hideEntry(t *testing.T, repo, chart, version string) {
+// withdrawEntry marks the entry of a version of a chart as withdrawn.
+func withdrawEntry(t *testing.T, repo, chart, version string) {
 	t.Helper()
 
 	path := filepath.Join(repo, "entries", chart, version+".yaml")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, append(data, "hide: true\n"...), 0o600))
+	require.NoError(t, os.WriteFile(path, append(data, "withdrawn: true\n"...), 0o600))
 }
 
-// unhideEntry takes the hide mark off the entry of a version of a chart.
-func unhideEntry(t *testing.T, repo, chart, version string) {
+// unwithdrawEntry takes the withdrawn mark off the entry of a version of a chart.
+func unwithdrawEntry(t *testing.T, repo, chart, version string) {
 	t.Helper()
 
 	path := filepath.Join(repo, "entries", chart, version+".yaml")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(data), "hide: true\n")
-	require.NoError(t, os.WriteFile(path, []byte(strings.Replace(string(data), "hide: true\n", "", 1)), 0o600))
+	require.Contains(t, string(data), "withdrawn: true\n")
+	require.NoError(t, os.WriteFile(path, []byte(strings.Replace(string(data), "withdrawn: true\n", "", 1)), 0o600))
 }
 
 func readIndex(t *testing.T, repo string) string {
@@ -228,64 +228,64 @@ func TestIndexRefusesWhenTheThreePlacesDisagree(t *testing.T) {
 	}
 }
 
-func TestIndexHidesAPublishedVersion(t *testing.T) {
+func TestIndexWithdrawsAPublishedVersion(t *testing.T) {
 	repo := publishedRepo(t)
 	before := readIndex(t, repo)
-	hideEntry(t, repo, "fleet", "111.0.3+up0.17.4")
+	withdrawEntry(t, repo, "fleet", "111.0.3+up0.17.4")
 
 	res := harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
 
 	require.Zero(t, res.ExitCode, res.Stderr)
-	require.Equal(t, "hide fleet 111.0.3+up0.17.4\n", res.Stdout)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", res.Stdout)
 	after := readIndex(t, repo)
 	require.NotContains(t, after, "version: 111.0.3+up0.17.4\n")
 	require.Contains(t, after, "version: 111.0.3+up0.17.3\n")
 	require.Equal(t, strings.Count(before, "    version: ")-1, strings.Count(after, "    version: "))
-	require.NotContains(t, after, "hide", "hide is not a field of the index")
+	require.NotContains(t, after, "withdrawn", "withdrawn is not a field of the index")
 	require.FileExists(t, filepath.Join(repo, "entries", "fleet", "111.0.3+up0.17.4.yaml"))
 	require.FileExists(t, filepath.Join(repo, "assets", "fleet", "fleet-111.0.3+up0.17.4.tgz"))
 
 	res = harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
 
 	require.Zero(t, res.ExitCode, res.Stderr)
-	require.Equal(t, "nothing to change\n", res.Stdout, "a hidden version is hidden once")
-	require.Equal(t, after, readIndex(t, repo), "a hidden version stays hidden")
+	require.Equal(t, "nothing to change\n", res.Stdout, "a withdrawn version is withdrawn once")
+	require.Equal(t, after, readIndex(t, repo), "a withdrawn version stays withdrawn")
 }
 
-func TestIndexRefusesToHideAVersionThatWasNeverPublished(t *testing.T) {
+func TestIndexRefusesToWithdrawAVersionThatWasNeverPublished(t *testing.T) {
 	repo := copyRepo(t)
-	hideEntry(t, repo, "fleet", "111.0.3+up0.17.4")
+	withdrawEntry(t, repo, "fleet", "111.0.3+up0.17.4")
 
 	res := harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
 
 	require.NotZero(t, res.ExitCode)
-	require.Contains(t, res.Stderr, "fleet 111.0.3+up0.17.4 is hidden but was never published")
+	require.Contains(t, res.Stderr, "fleet 111.0.3+up0.17.4 is withdrawn but was never published")
 	require.NoFileExists(t, filepath.Join(repo, "index.yaml"))
 }
 
-func TestIndexDoesNotPublishAHiddenVersionAgain(t *testing.T) {
+func TestIndexDoesNotPublishAWithdrawnVersionAgain(t *testing.T) {
 	repo := publishedRepo(t)
-	hideEntry(t, repo, "fleet", "111.0.3+up0.17.4")
+	withdrawEntry(t, repo, "fleet", "111.0.3+up0.17.4")
 	res := harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
 	require.Zero(t, res.ExitCode, res.Stderr)
-	hidden := readIndex(t, repo)
-	unhideEntry(t, repo, "fleet", "111.0.3+up0.17.4")
+	withdrawn := readIndex(t, repo)
+	unwithdrawEntry(t, repo, "fleet", "111.0.3+up0.17.4")
 
 	res = harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
 
 	require.NotZero(t, res.ExitCode)
 	require.Contains(t, res.Stderr, "fleet 111.0.3+up0.17.4 is not in index.yaml yet but already has an archive in assets/")
-	require.Equal(t, hidden, readIndex(t, repo))
+	require.Equal(t, withdrawn, readIndex(t, repo))
 }
 
 func TestIndexRefusesToChangeAPublishedVersion(t *testing.T) {
 	const version = "111.0.3+up0.17.3"
 
 	tests := []struct {
-		name string
-		old  string
-		new  string
-		hide bool
+		name      string
+		old       string
+		new       string
+		withdrawn bool
 	}{
 		{
 			name: "a description that changed",
@@ -313,10 +313,10 @@ func TestIndexRefusesToChangeAPublishedVersion(t *testing.T) {
 			new:  "icon: file://assets/logos/other.svg\n",
 		},
 		{
-			name: "a description that changed together with hide",
-			old:  "description: Fixture of fleet\n",
-			new:  "description: Another description\n",
-			hide: true,
+			name:      "a description that changed together with withdrawn",
+			old:       "description: Fixture of fleet\n",
+			new:       "description: Another description\n",
+			withdrawn: true,
 		},
 	}
 
@@ -328,8 +328,8 @@ func TestIndexRefusesToChangeAPublishedVersion(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, string(data), tt.old)
 			require.NoError(t, os.WriteFile(path, []byte(strings.Replace(string(data), tt.old, tt.new, 1)), 0o600))
-			if tt.hide {
-				hideEntry(t, repo, "fleet", version)
+			if tt.withdrawn {
+				withdrawEntry(t, repo, "fleet", version)
 			}
 			before := readIndex(t, repo)
 
@@ -512,4 +512,70 @@ func TestIndexRefusesToChangeAPublishedArchive(t *testing.T) {
 	require.Contains(t, res.Stderr, "index.yaml has the digest "+emptyDigest+" and the file has ")
 	require.Contains(t, res.Stderr, "A published archive is never allowed to change")
 	require.Equal(t, before, readIndex(t, repo))
+}
+
+func TestWithdrawThenIndexTakesTheVersionOut(t *testing.T) {
+	repo := publishedRepo(t)
+	before := readIndex(t, repo)
+	entry := filepath.Join(repo, "entries", "fleet", "111.0.3+up0.17.4.yaml")
+	text, err := os.ReadFile(entry)
+	require.NoError(t, err)
+
+	dry := harness.Cargueiro(t, t.TempDir(), "withdraw", "--dry-run", entry)
+
+	require.Zero(t, dry.ExitCode, dry.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", dry.Stdout)
+	unchanged, err := os.ReadFile(entry)
+	require.NoError(t, err)
+	require.Equal(t, text, unchanged, "a dry run writes nothing")
+
+	res := harness.Cargueiro(t, t.TempDir(), "withdraw", entry)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", res.Stdout)
+	marked, err := os.ReadFile(entry)
+	require.NoError(t, err)
+	require.Equal(t, string(text)+"withdrawn: true\n", string(marked))
+	require.Equal(t, before, readIndex(t, repo), "withdraw does not touch the index")
+
+	res = harness.Cargueiro(t, t.TempDir(), "index", "--repo", repo)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet 111.0.3+up0.17.4\n", res.Stdout)
+	require.NotContains(t, readIndex(t, repo), "version: 111.0.3+up0.17.4\n")
+
+	again := harness.Cargueiro(t, t.TempDir(), "withdraw", entry)
+
+	require.Equal(t, 1, again.ExitCode)
+	require.Contains(t, again.Stderr, "is withdrawn already")
+}
+
+func TestWithdrawFamilyWithdrawsTheChartAndItsSiblings(t *testing.T) {
+	const version = "111.0.3+up0.17.3"
+	repo := t.TempDir()
+	index := "apiVersion: v1\nentries:\n"
+	for _, chart := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		text := "apiVersion: v2\nname: " + chart + "\nurls:\n- oci://stgregistry.suse.com/rancher/catalog/" + chart +
+			":111.0.3_up0.17.3@sha256:1111111111111111111111111111111111111111111111111111111111111111\nversion: " + version + "\n"
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, "entries", chart), 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(repo, "entries", chart, version+".yaml"), []byte(text), 0o600))
+		index += "  " + chart + ":\n  - name: " + chart + "\n    version: " + version + "\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "index.yaml"), []byte(index+"generated: \"2026-11-11T17:33:45Z\"\n"), 0o600))
+	crd := filepath.Join(repo, "entries", "fleet-crd", version+".yaml")
+
+	res := harness.Cargueiro(t, t.TempDir(), "withdraw", "--family", crd)
+
+	require.Zero(t, res.ExitCode, res.Stderr)
+	require.Equal(t, "withdraw fleet "+version+"\nwithdraw fleet-agent "+version+"\nwithdraw fleet-crd "+version+"\n", res.Stdout)
+	for _, chart := range []string{"fleet", "fleet-agent", "fleet-crd"} {
+		data, err := os.ReadFile(filepath.Join(repo, "entries", chart, version+".yaml"))
+		require.NoError(t, err)
+		require.True(t, strings.HasSuffix(string(data), "withdrawn: true\n"), chart)
+	}
+
+	again := harness.Cargueiro(t, t.TempDir(), "withdraw", "--family", crd)
+
+	require.Equal(t, 1, again.ExitCode)
+	require.Contains(t, again.Stderr, "the family fleet is not withdrawn, and nothing was written")
 }

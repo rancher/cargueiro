@@ -183,8 +183,8 @@ func TestWriteGeneratedIsTheNewestCreated(t *testing.T) {
 		require.Equal(t, before, read(t))
 	})
 
-	t.Run("a hidden version does not count", func(t *testing.T) {
-		writeFiles(t, dir, map[string]string{"entries/fleet/" + second + ".yaml": entryTextCreated(second, pinnedTwo, "2026-11-13T09:00:00Z") + "hide: true\n"})
+	t.Run("a withdrawn version does not count", func(t *testing.T) {
+		writeFiles(t, dir, map[string]string{"entries/fleet/" + second + ".yaml": entryTextCreated(second, pinnedTwo, "2026-11-13T09:00:00Z") + "withdrawn: true\n"})
 
 		_, err := Write(context.Background(), cfg, dir, opts)
 		require.NoError(t, err)
@@ -335,10 +335,10 @@ func TestWriteReturnsWhatItDid(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Plan{Add: []Ref{{Chart: "fleet", Version: version}}}, plan)
 
-	writeFiles(t, dir, map[string]string{"entries/fleet/" + version + ".yaml": entryText(version, pinnedOne) + "hide: true\n"})
+	writeFiles(t, dir, map[string]string{"entries/fleet/" + version + ".yaml": entryText(version, pinnedOne) + "withdrawn: true\n"})
 	plan, err = Write(context.Background(), cfg, dir, opts)
 	require.NoError(t, err)
-	require.Equal(t, Plan{Hide: []Ref{{Chart: "fleet", Version: version}}}, plan)
+	require.Equal(t, Plan{Withdraw: []Ref{{Chart: "fleet", Version: version}}}, plan)
 }
 
 func TestWriteDryRun(t *testing.T) {
