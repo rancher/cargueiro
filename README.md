@@ -68,7 +68,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`registry`](cmd/docs/registry.md) | Manage the registry login cargueiro saves. |
 | [`registry login`](cmd/docs/registry-login.md) | Save credentials and connection settings for a registry. |
 | [`registry logout`](cmd/docs/registry-logout.md) | Forget the saved login. |
-| [`release`](cmd/docs/release.md) | Release the legacy versions from the staging charts repository to the production one. |
+| [`release`](cmd/docs/release.md) | Release the versions of the staging charts repository to the production one. |
 | [`ship`](cmd/docs/ship.md) | Write the entry and the logo of a chart in a registry to a charts repository. |
 | [`stamp`](cmd/docs/stamp.md) | Put the final version and the helm.sh/images annotation on a chart directory. |
 | [`upstream-repos`](cmd/docs/upstream-repos.md) | List the upstream repository of every main chart of the `rancher-charts` edition in `rules.yaml`. |

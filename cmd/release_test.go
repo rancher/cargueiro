@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/rancher/cargueiro/internal/oci"
 	"github.com/rancher/cargueiro/internal/release"
+	"github.com/rancher/cargueiro/internal/rules"
 )
 
 // releaseStaging writes a staging repository with the legacy entries of the given
@@ -47,9 +49,13 @@ type fakeReleaseRegistry struct {
 	has      map[string]string
 	copied   []string
 	failCopy map[string]bool
+	// the images of staging and of production, by ref, and the ones that were copied
+	stagingImages map[string]string
+	images        map[string]string
+	imagesCopied  []string
 }
 
-func (f *fakeReleaseRegistry) factory(guard *oci.Guard, from, to oci.FetchOptions, _ oci.Retry) release.Registry {
+func (f *fakeReleaseRegistry) factory(_ *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, _ oci.Retry) release.Registry {
 	f.made, f.guard, f.from, f.to = true, guard, from, to
 	return f
 }
@@ -60,6 +66,30 @@ func (f *fakeReleaseRegistry) Inspect(_ context.Context, ref string) (oci.Manife
 		return oci.ManifestInfo{}, fmt.Errorf("%s: %w", ref, oci.ErrNotFound)
 	}
 	return oci.ManifestInfo{ManifestDigest: digest}, nil
+}
+
+func (f *fakeReleaseRegistry) Validate(context.Context, release.Item) error { return nil }
+
+func (f *fakeReleaseRegistry) StagingImage(_ context.Context, image oci.ChartRef) (string, error) {
+	digest, ok := f.stagingImages[image.String()]
+	if !ok {
+		return "", fmt.Errorf("%s: %w", image, oci.ErrNotFound)
+	}
+	return digest, nil
+}
+
+func (f *fakeReleaseRegistry) ProductionImage(_ context.Context, image oci.ChartRef) (string, error) {
+	digest, ok := f.images[image.String()]
+	if !ok {
+		return "", fmt.Errorf("%s: %w", image, oci.ErrNotFound)
+	}
+	return digest, nil
+}
+
+func (f *fakeReleaseRegistry) CopyImage(_ context.Context, image release.Image, digest string) error {
+	f.images[image.Destination.String()] = digest
+	f.imagesCopied = append(f.imagesCopied, image.Destination.String())
+	return nil
 }
 
 func (f *fakeReleaseRegistry) Copy(_ context.Context, item release.Item) error {
@@ -173,9 +203,8 @@ func TestReleaseNeedsWhatItReleases(t *testing.T) {
 		args    []string
 		wantErr string
 	}{
-		{"without --legacy", []string{"--from", staging, "--repo", "x"}, "--legacy is required"},
-		{"without --from", []string{"--legacy", "--repo", "x"}, "--from is required"},
-		{"without --repo", []string{"--legacy", "--from", staging}, "--repo is required"},
+		{"without --from", []string{"--repo", "x"}, "--from is required"},
+		{"without --repo", []string{"--from", staging}, "--repo is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -220,4 +249,101 @@ func TestReleaseOnlyTheFamiliesGiven(t *testing.T) {
 
 		require.ErrorContains(t, err, `family "nope" is not listed in the rules file`)
 	})
+}
+
+// releaseStagingNew writes a staging repository with new versions of fleet: a final one that
+// lists two images, a release candidate, and a hidden one.
+func releaseStagingNew(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	write := func(version, extra string) {
+		tag := strings.ReplaceAll(version, "+", "_")
+		text := "annotations:\n  helm.sh/images: |\n    - name: fleet\n      image: rancher/fleet:v0.17.0\n    - name: agent\n      image: rancher/fleet-agent:v0.17.0\n" +
+			"apiVersion: v2\nname: fleet\nversion: " + version + "\n" + extra +
+			"urls:\n- oci://stgregistry.suse.com/rancher/catalog/fleet:" + tag + "@sha256:a1\n"
+		path := filepath.Join(dir, "entries", "fleet", version+".yaml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
+	}
+	write("111.0.2+up0.17.0", "")
+	write("111.0.1+up0.17.0-rc.4", "")
+	write("111.0.3+up0.17.1", "hide: true\n")
+	return dir
+}
+
+func newReleaseFake() *fakeReleaseRegistry {
+	return &fakeReleaseRegistry{
+		has: map[string]string{}, images: map[string]string{},
+		stagingImages: map[string]string{
+			"stgregistry.suse.com/rancher/fleet:v0.17.0":       "sha256:img1",
+			"stgregistry.suse.com/rancher/fleet-agent:v0.17.0": "sha256:img2",
+		},
+	}
+}
+
+func TestReleaseNewVersionsWithoutLegacy(t *testing.T) {
+	staging, production := releaseStagingNew(t), t.TempDir()
+	fake := newReleaseFake()
+
+	stdout, err := runReleaseWith(t, fake, nil, "--from", staging, "--repo", production)
+
+	require.NoError(t, err)
+	require.Contains(t, stdout, "image copied registry.suse.com/rancher/fleet:v0.17.0\n")
+	require.Contains(t, stdout, "released fleet 111.0.2+up0.17.0\n")
+	require.Contains(t, stdout, "released 1 versions, adopted 0\nimages: copied 2, already in production 0\n")
+	require.NotContains(t, stdout, "111.0.1+up0.17.0-rc.4", "a release candidate is not released")
+	require.Equal(t, []string{"registry.suse.com/rancher/fleet:v0.17.0", "registry.suse.com/rancher/fleet-agent:v0.17.0"}, fake.imagesCopied)
+	require.FileExists(t, filepath.Join(production, "entries", "fleet", "111.0.2+up0.17.0.yaml"))
+	require.NoDirExists(t, filepath.Join(production, "legacy"))
+	require.NoFileExists(t, filepath.Join(production, "entries", "fleet", "111.0.1+up0.17.0-rc.4.yaml"))
+}
+
+func TestReleaseNewVersionsDryRunSaysWhatIsLeftOut(t *testing.T) {
+	staging, production := releaseStagingNew(t), t.TempDir()
+	fake := newReleaseFake()
+
+	stdout, err := runReleaseWith(t, fake, nil, "--from", staging, "--repo", production, "--dry-run")
+
+	require.NoError(t, err)
+	require.Equal(t, ""+
+		"skip fleet 111.0.1+up0.17.0-rc.4: release candidate\n"+
+		"skip fleet 111.0.3+up0.17.1: hidden\n"+
+		"release fleet 111.0.2+up0.17.0\n"+
+		"  image stgregistry.suse.com/rancher/fleet:v0.17.0\n"+
+		"  image stgregistry.suse.com/rancher/fleet-agent:v0.17.0\n", stdout)
+	require.False(t, fake.made, "no registry is made, and nothing is written")
+	require.NoDirExists(t, filepath.Join(production, "entries"))
+}
+
+func TestReleaseImagesFromAnotherRegistryThanTheChartsAreRefused(t *testing.T) {
+	staging := releaseStagingNew(t)
+	fake := newReleaseFake()
+	fake.stagingImages = map[string]string{
+		"127.0.0.1:5050/stg/fleet:v0.17.0":       "sha256:img1",
+		"127.0.0.1:5050/stg/fleet-agent:v0.17.0": "sha256:img2",
+	}
+
+	_, err := runReleaseWith(t, fake, nil, "--from", staging, "--repo", t.TempDir(), "--plain-http",
+		"--registry", "127.0.0.1:5052/charts", "--images-registry", "127.0.0.1:5052/images", "--staging-images-registry", "127.0.0.1:5050/stg")
+
+	require.Error(t, err, "the charts and the images are read from different registries than they are written to, and a release works between one and one")
+	require.ErrorContains(t, err, "a release works between one registry and one registry")
+}
+
+func TestReleaseImageRegistriesAreNotForLegacy(t *testing.T) {
+	_, err := runReleaseWith(t, newReleaseFake(), nil, "--legacy", "--from", t.TempDir(), "--repo", t.TempDir(), "--images-registry", "x.io/images")
+
+	require.ErrorContains(t, err, "are for new versions")
+}
+
+func TestReleaseWithNothingNewSaysSo(t *testing.T) {
+	staging := t.TempDir()
+	fake := newReleaseFake()
+
+	stdout, err := runReleaseWith(t, fake, nil, "--from", staging, "--repo", t.TempDir())
+
+	require.NoError(t, err)
+	require.Equal(t, "nothing to release\n", stdout)
+	require.False(t, fake.made)
 }

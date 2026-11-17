@@ -20,10 +20,10 @@ const (
 
 // releaseRegistryFactory builds the registry a release reads the charts from, with
 // the options from, and copies them to, with the options to.
-type releaseRegistryFactory func(guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry) release.Registry
+type releaseRegistryFactory func(cfg *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry) release.Registry
 
 func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobra.Command, error) {
-	var from, repoDir, registry, productionUsername string
+	var from, repoDir, registry, imageRegistry, stagingImageRegistry, productionUsername string
 	var families []string
 	var legacy, plainHTTP, dryRun bool
 	var creds credentialFlags
@@ -32,9 +32,6 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 		Use:  "release",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !legacy {
-				return errors.New("--legacy is required: the legacy versions are the only thing that release moves to production for now")
-			}
 			for flag, value := range map[string]string{"--from": from, "--repo": repoDir} {
 				if value == "" {
 					return fmt.Errorf("%s is required", flag)
@@ -44,10 +41,20 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 			if err != nil {
 				return err
 			}
-			releaseOpts := release.Options{From: from, Repo: repoDir, Registry: registry, Families: families}
-			opts.log.DebugContext(cmd.Context(), "releasing", "from", from, "repo", repoDir, "dry-run", dryRun)
+			if legacy && (imageRegistry != "" || stagingImageRegistry != "") {
+				return errors.New("--images-registry and --staging-images-registry are for new versions: a legacy version has no images to copy")
+			}
+			releaseOpts := release.Options{
+				From: from, Repo: repoDir, Registry: registry, Families: families,
+				ImageRegistry: imageRegistry, StagingImageRegistry: stagingImageRegistry,
+			}
+			opts.log.DebugContext(cmd.Context(), "releasing", "from", from, "repo", repoDir, "legacy", legacy, "dry-run", dryRun)
 
-			plan, err := release.MakePlan(cfg, releaseOpts)
+			makePlan := release.MakeEntriesPlan
+			if legacy {
+				makePlan = release.MakePlan
+			}
+			plan, err := makePlan(cfg, releaseOpts)
 			if err != nil {
 				return err
 			}
@@ -76,11 +83,13 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 		},
 	}
 	flags := cmd.Flags()
-	flags.BoolVar(&legacy, "legacy", false, "release the legacy versions, the ones in legacy/")
+	flags.BoolVar(&legacy, "legacy", false, "release the legacy versions, the ones in legacy/, and nothing else (default: the new versions, the ones in entries/)")
 	flags.StringVar(&from, "from", "", "path of the checkout of the staging charts repository to release from")
 	flags.StringVar(&repoDir, "repo", "", "path of the checkout of the production charts repository to release into")
 	flags.StringSliceVar(&families, "family", nil, "release only the charts of this family, by its name in rules.yaml; it can be given more than once (default: every family)")
 	flags.StringVar(&registry, "registry", "", "registry path the charts are copied to, host[:port]/path, instead of the production registry of the chart")
+	flags.StringVar(&imageRegistry, "images-registry", "", "registry path the images are copied to, host[:port]/path, instead of the production images registry of the rules")
+	flags.StringVar(&stagingImageRegistry, "staging-images-registry", "", "registry path the images are copied from, host[:port]/path, instead of the staging images registry of the rules")
 	flags.StringVar(&productionUsername, "production-username", "", "username for the production registry (default: $"+envProductionUsername+")")
 	flags.BoolVar(&dryRun, "dry-run", false, "report what would be released, and read and write nothing in a registry or in the repository")
 	flags.BoolVar(&plainHTTP, "plain-http", false, "talk HTTP to the registries instead of HTTPS, for local registries")
@@ -100,12 +109,18 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 // and the password from the environment only.
 func openReleaseRegistry(cmd *cobra.Command, opts *rootOptions, newRegistry releaseRegistryFactory, plan release.Plan, creds credentialFlags, productionUsername string, plainHTTP bool) (release.Registry, error) {
 	var sources, destinations []string
-	for _, item := range plan.Release {
-		if !slices.Contains(sources, item.Source.Host) {
-			sources = append(sources, item.Source.Host)
+	add := func(list []string, host string) []string {
+		if slices.Contains(list, host) {
+			return list
 		}
-		if !slices.Contains(destinations, item.Destination.Host) {
-			destinations = append(destinations, item.Destination.Host)
+		return append(list, host)
+	}
+	for _, item := range plan.Release {
+		sources = add(sources, item.Source.Host)
+		destinations = add(destinations, item.Destination.Host)
+		for _, image := range item.Images {
+			sources = add(sources, image.Source.Host)
+			destinations = add(destinations, image.Destination.Host)
 		}
 	}
 	if len(sources) != 1 || len(destinations) != 1 {
@@ -128,7 +143,11 @@ func openReleaseRegistry(cmd *cobra.Command, opts *rootOptions, newRegistry rele
 	if err != nil {
 		return nil, err
 	}
-	return newRegistry(guard, fetchOptions(source, plainHTTP), fetchOptions(production, plainHTTP), oci.DefaultRetry()), nil
+	cfg, err := rules.Parse(opts.rules)
+	if err != nil {
+		return nil, err
+	}
+	return newRegistry(cfg, guard, fetchOptions(source, plainHTTP), fetchOptions(production, plainHTTP), oci.DefaultRetry()), nil
 }
 
 // fetchOptions turns a connection into the options of a read or a write.
