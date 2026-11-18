@@ -12,6 +12,8 @@ type valuesImage struct {
 	Path string
 	// Image is "repository:tag".
 	Image string
+	// OS is the "os" of the image block, such as "windows,linux". Empty when absent.
+	OS string
 	// Dependency names the subchart this image belongs to, the way it should
 	// appear in the helm.sh/images annotation's "dependency" field: the
 	// subchart's own name, or "parent/child" for one nested further in. Empty
@@ -122,7 +124,8 @@ func (s *valuesScan) imageBlock(block map[string]any, path string) {
 	default:
 		repositoryText, _ := repository.(string)
 		tagText, _ := tag.(string)
-		s.images = append(s.images, valuesImage{Path: path, Image: repositoryText + ":" + tagText, Dependency: s.dependency})
+		osText, _ := block["os"].(string)
+		s.images = append(s.images, valuesImage{Path: path, Image: repositoryText + ":" + tagText, OS: strings.TrimSpace(osText), Dependency: s.dependency})
 	}
 }
 

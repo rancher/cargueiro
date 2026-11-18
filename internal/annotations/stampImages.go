@@ -70,10 +70,12 @@ func GenerateHelmImages(annotations map[string]string, values map[string]any, de
 			owners[name] = struct{ repository, image string }{repository, found.Image}
 		}
 		listed[found.Image] = true
-		if found.Dependency == "" {
-			fmt.Fprintf(&added, "- name: %s\n  image: %s\n", name, found.Image)
-		} else {
-			fmt.Fprintf(&added, "- name: %s\n  image: %s\n  dependency: %s\n", name, found.Image, found.Dependency)
+		fmt.Fprintf(&added, "- name: %s\n  image: %s\n", name, found.Image)
+		if found.OS != "" {
+			fmt.Fprintf(&added, "  os: %s\n", found.OS)
+		}
+		if found.Dependency != "" {
+			fmt.Fprintf(&added, "  dependency: %s\n", found.Dependency)
 		}
 	}
 	if len(problems) > 0 {

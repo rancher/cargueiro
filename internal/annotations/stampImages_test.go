@@ -177,6 +177,19 @@ func TestGenerateHelmImagesWithDependencies(t *testing.T) {
 			wantChanged: true,
 		},
 		{
+			name:        "the os of an image block is copied, before the dependency",
+			annotations: map[string]string{},
+			values: map[string]any{
+				"image": map[string]any{"repository": "rancher/top", "tag": "v1", "os": "windows,linux"},
+			},
+			dependencies: map[string]*chart.Files{
+				"sub": {Values: map[string]any{"image": map[string]any{"repository": "rancher/sub", "tag": "v1", "os": "linux"}}},
+			},
+			want: "- name: top\n  image: rancher/top:v1\n  os: windows,linux\n" +
+				"- name: sub\n  image: rancher/sub:v1\n  os: linux\n  dependency: sub\n",
+			wantChanged: true,
+		},
+		{
 			name:        "the chart's own images come before the subchart's",
 			annotations: map[string]string{},
 			values: map[string]any{
