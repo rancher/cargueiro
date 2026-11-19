@@ -41,7 +41,9 @@ type dependencies struct {
 	verifyLogin verifyFunc
 	fetchChart  fetchFunc
 	listTags    listFunc
-	prepare     prepareFunc
+	// resolveImage looks for an image in the images registry.
+	resolveImage resolveImageFunc
+	prepare      prepareFunc
 	// verifyCheckout checks the charts repository that ship writes to.
 	verifyCheckout verifyCheckoutFunc
 	// auditFetch reads the manifests audit compares the repository with. Nil
@@ -69,6 +71,7 @@ func NewRootCmd(stdout, stderr io.Writer, rules []byte) (*cobra.Command, error) 
 		verifyLogin:        oci.VerifyLogin,
 		fetchChart:         oci.FetchChart,
 		listTags:           oci.ListTags,
+		resolveImage:       resolveImage,
 		newImportRegistry:  importer.NewRegistry,
 		newReleaseRegistry: release.NewRegistry,
 		prepare:            ship.Prepare,
@@ -153,7 +156,11 @@ func newRootCmd(stdout, stderr io.Writer, opts *rootOptions, deps dependencies) 
 	if err != nil {
 		return nil, err
 	}
-	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd, releaseCmd, withdrawCmd)
+	checkPushedDependenciesCmd, err := newCheckPushedDependenciesCmd(opts, deps.resolveImage)
+	if err != nil {
+		return nil, err
+	}
+	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd, releaseCmd, withdrawCmd, checkPushedDependenciesCmd)
 
 	return root, nil
 }

@@ -60,6 +60,7 @@ Each command is documented in its own file under `cmd/docs/`. That file is the s
 | [`check archive`](cmd/docs/check-archive.md) | Check one packaged chart (.tgz) against the chart rules. |
 | [`check chart`](cmd/docs/check-chart.md) | Check one chart directory against the chart rules. |
 | [`check oci`](cmd/docs/check-oci.md) | Check one chart in an OCI registry against the chart rules. |
+| [`check-pushed-dependencies`](cmd/docs/check-pushed-dependencies.md) | Check that the images of a chart are in the images registry, with the tag the chart names. |
 | [`import`](cmd/docs/import.md) | Import the versions of the old system into a charts repository, as legacy entries. |
 | [`index`](cmd/docs/index.md) | Write the `index.yaml` of a charts repository from its `entries/`. |
 | [`list`](cmd/docs/list.md) | List the versions of a chart in an OCI registry, newest first. |
