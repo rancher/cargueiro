@@ -19,3 +19,19 @@ func ResolveDigest(ctx context.Context, ref ChartRef, opts FetchOptions) (string
 	}
 	return desc.Digest.String(), nil
 }
+
+// ResolveDigestWithRetry is ResolveDigest, run again by retry when the read fails
+// in a way that can pass, such as a network error or a registry that is busy. A
+// tag that is not there and a refusal are not tried again.
+func ResolveDigestWithRetry(ctx context.Context, ref ChartRef, opts FetchOptions, retry Retry) (string, error) {
+	var digest string
+	err := retry.do(ctx, func() error {
+		var err error
+		digest, err = ResolveDigest(ctx, ref, opts)
+		return err
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+	return digest, nil
+}
