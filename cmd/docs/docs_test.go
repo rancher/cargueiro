@@ -115,7 +115,7 @@ func TestLoad(t *testing.T) {
 func TestNames(t *testing.T) {
 	names, err := Names()
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"audit", "check", "check-archive", "check-chart", "check-oci", "chart-version", "import", "index", "list", "package", "push", "registry", "stamp", "upstream-repos", "registry-login", "registry-logout", "release", "ship", "version", "withdraw"}, names)
+	require.ElementsMatch(t, []string{"audit", "check", "check-archive", "check-chart", "check-oci", "check-pushed-dependencies", "chart-version", "import", "index", "list", "package", "push", "registry", "stamp", "upstream-repos", "registry-login", "registry-logout", "release", "ship", "version", "withdraw"}, names)
 }
 
 func TestParseNestedCommand(t *testing.T) {
