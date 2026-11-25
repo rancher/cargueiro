@@ -53,6 +53,8 @@ type dependencies struct {
 	newImportRegistry importRegistryFactory
 	// newReleaseRegistry builds the registry release reads from and copies to.
 	newReleaseRegistry releaseRegistryFactory
+	// copySignatures copies the signatures of an image between two registries.
+	copySignatures copySignaturesFunc
 }
 
 // NewRootCmd builds the root command. Output streams are injected so
@@ -72,6 +74,7 @@ func NewRootCmd(stdout, stderr io.Writer, rules []byte) (*cobra.Command, error) 
 		fetchChart:         oci.FetchChart,
 		listTags:           oci.ListTags,
 		resolveImage:       resolveImage,
+		copySignatures:     copySignatures,
 		newImportRegistry:  importer.NewRegistry,
 		newReleaseRegistry: release.NewRegistry,
 		prepare:            ship.Prepare,
@@ -160,7 +163,11 @@ func newRootCmd(stdout, stderr io.Writer, opts *rootOptions, deps dependencies) 
 	if err != nil {
 		return nil, err
 	}
-	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd, releaseCmd, withdrawCmd, checkPushedDependenciesCmd)
+	copyImageSignaturesCmd, err := newCopyImageSignaturesCmd(opts, deps.copySignatures)
+	if err != nil {
+		return nil, err
+	}
+	root.AddCommand(versionCmd, packageCmd, pushCmd, registryCmd, checkCmd, listCmd, stampCmd, chartVersionCmd, indexCmd, shipCmd, auditCmd, upstreamReposCmd, importCmd, releaseCmd, withdrawCmd, checkPushedDependenciesCmd, copyImageSignaturesCmd)
 
 	return root, nil
 }
