@@ -35,7 +35,11 @@ type fakeRegistry struct {
 	imageCopyFails   map[string]error
 	wrongImage       map[string]string
 	stagingImageFail map[string]error
-	calls            []string
+	// signatures is how many signatures staging has for each image, by its ref in production,
+	// and signatureFails the images whose signatures cannot be copied.
+	signatures     map[string]int
+	signatureFails map[string]error
+	calls          []string
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -43,6 +47,7 @@ func newFakeRegistry() *fakeRegistry {
 		has: map[string]string{}, copyFails: map[string]error{}, lost: map[string]bool{}, wrong: map[string]string{},
 		stagingImages: map[string]string{}, images: map[string]string{}, invalid: map[string]error{},
 		imageCopyFails: map[string]error{}, wrongImage: map[string]string{}, stagingImageFail: map[string]error{},
+		signatures: map[string]int{}, signatureFails: map[string]error{},
 	}
 }
 
@@ -107,6 +112,15 @@ func (f *fakeRegistry) CopyImage(_ context.Context, image Image, digest string) 
 	}
 	f.images[ref] = digest
 	return nil
+}
+
+func (f *fakeRegistry) CopyImageSignatures(_ context.Context, image Image, _ string) (int, error) {
+	ref := image.Destination.String()
+	f.calls = append(f.calls, "signatures "+ref)
+	if err := f.signatureFails[ref]; err != nil {
+		return 0, err
+	}
+	return f.signatures[ref], nil
 }
 
 // stage makes a staging repository with the legacy versions of fleet and a plan for

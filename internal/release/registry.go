@@ -34,20 +34,32 @@ type Registry interface {
 	// CopyImage copies the image, the manifest with the digest given, from the staging
 	// registry to its place in the production one. It never replaces a tag that is there.
 	CopyImage(ctx context.Context, image Image, digest string) error
+	// CopyImageSignatures copies the signatures of the image, the manifest with the digest
+	// given, from the staging registry to the production one, where the image already is, and
+	// returns how many signatures the production registry has for it afterwards. It returns 0
+	// when staging has none. It copies no image and replaces no tag of the image.
+	CopyImageSignatures(ctx context.Context, image Image, digest string) (int, error)
 }
+
+// SignatureCopier copies the signatures of the image at src to the same image at dst, each as
+// host/repository:tag. The one of the command is slsactl's, which charts-build-scripts used.
+type SignatureCopier func(src, dst string) error
 
 // ociRegistry is the Registry that talks to the real registries.
 type ociRegistry struct {
 	cfg   *rules.Config
 	guard *oci.Guard
 	opts  oci.CopyOptions
+	// copySignatures copies the signatures of an image, and is run after the image is copied.
+	copySignatures SignatureCopier
 }
 
 // NewRegistry returns a Registry that reads the charts from the registry their
 // entries say with the credentials in from, and writes them to production with the
-// ones in to, where guard allows it. A failed copy is tried again as retry says.
-func NewRegistry(cfg *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry) Registry {
-	return ociRegistry{cfg: cfg, guard: guard, opts: oci.CopyOptions{From: from, To: to, Retry: retry}}
+// ones in to, where guard allows it. A failed copy is tried again as retry says. The
+// signatures of the images it copies are copied by copySignatures.
+func NewRegistry(cfg *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry, copySignatures SignatureCopier) Registry {
+	return ociRegistry{cfg: cfg, guard: guard, opts: oci.CopyOptions{From: from, To: to, Retry: retry}, copySignatures: copySignatures}
 }
 
 // Inspect reads the manifest of the chart at ref with one request.
@@ -115,4 +127,29 @@ func (r ociRegistry) CopyImage(ctx context.Context, image Image, digest string) 
 	}
 	from := oci.ChartRepo{Host: image.Source.Host, Repository: image.Source.Repository}
 	return oci.Copy(ctx, from, digest, image.Destination, r.opts)
+}
+
+// CopyImageSignatures copies the signatures that staging has for the image to production. The
+// image is read in both registries first, because a signature is of one manifest: the tag has to
+// name the digest given in both, or nothing is copied. The copy never replaces a tag of the image,
+// and the production registry is read again afterwards, so that a copy that did nothing is an error.
+func (r ociRegistry) CopyImageSignatures(ctx context.Context, image Image, digest string) (int, error) {
+	have, err := oci.CountSignatures(ctx, image.Source, digest, r.opts.From)
+	if err != nil {
+		return 0, fmt.Errorf("read the signatures in the staging registry: %w", err)
+	}
+	if have == 0 {
+		return 0, nil
+	}
+	if err := r.copySignatures(image.Source.String(), image.Destination.String()); err != nil {
+		return 0, err
+	}
+	got, err := oci.CountSignatures(ctx, image.Destination, digest, r.opts.To)
+	if err != nil {
+		return 0, fmt.Errorf("read the signatures in the production registry after the copy: %w", err)
+	}
+	if got == 0 {
+		return 0, fmt.Errorf("staging has %d signatures and production has none after the copy", have)
+	}
+	return got, nil
 }

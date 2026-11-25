@@ -47,11 +47,11 @@ func TestRunReleasesNewVersionsInOrder(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.Done())
-	require.Equal(t, []string{"validate fleet", "image " + controllerRef, "image " + agentRef, "chart " + chartRef}, reg.calls,
-		"the chart is checked, then its images are copied, then the chart: the chart is never in production without them")
+	require.Equal(t, []string{"validate fleet", "image " + controllerRef, "signatures " + controllerRef, "image " + agentRef, "signatures " + agentRef, "chart " + chartRef}, reg.calls,
+		"the chart is checked, then its images are copied, each with its signatures, then the chart: the chart is never in production without them")
 	require.Equal(t, "sha256:img1", reg.images[controllerRef], "the image has the manifest of staging")
 	require.Equal(t, 2, result.ImagesCopied)
-	require.Equal(t, "copied logo fleet.svg\nimage copied "+controllerRef+"\nimage copied "+agentRef+"\nreleased fleet 111.0.2+up0.17.0\n", report.String())
+	require.Equal(t, "copied logo fleet.svg\nimage copied "+controllerRef+"\nno signatures to copy "+controllerRef+": staging has none\nimage copied "+agentRef+"\nno signatures to copy "+agentRef+": staging has none\nreleased fleet 111.0.2+up0.17.0\n", report.String())
 	require.Equal(t, "released 1 versions, adopted 0\nimages: copied 2, already in production 0\n", result.Summary())
 
 	staged, err := os.ReadFile(filepath.Join(opts.From, "entries", "fleet", "111.0.2+up0.17.0.yaml"))
@@ -82,11 +82,55 @@ func TestRunLeavesAnImageThatIsThereAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Done(), "an image that is there is not a failure")
 	require.Equal(t, "sha256:other", reg.images[controllerRef], "and it is not replaced")
-	require.Equal(t, []string{"validate fleet", "image " + agentRef, "chart " + chartRef}, reg.calls, "only the other image is copied")
+	require.Equal(t, []string{"validate fleet", "image " + agentRef, "signatures " + agentRef, "chart " + chartRef}, reg.calls, "only the other image is copied, and only it is given signatures")
 	require.Contains(t, report.String(), "image present "+controllerRef)
 	require.Equal(t, 1, result.ImagesPresent)
 	require.Equal(t, 1, result.ImagesCopied)
 	require.Contains(t, result.Summary(), "images: copied 1, already in production 1")
+}
+
+func TestRunCopiesTheSignaturesOfAnImageItCopied(t *testing.T) {
+	opts, plan, reg := stageNew(t)
+	reg.signatures[controllerRef] = 2
+	var report bytes.Buffer
+
+	result, err := Run(context.Background(), opts, plan, reg, &report)
+
+	require.NoError(t, err)
+	require.True(t, result.Done())
+	require.Equal(t, []string{"validate fleet", "image " + controllerRef, "signatures " + controllerRef, "image " + agentRef, "signatures " + agentRef, "chart " + chartRef}, reg.calls,
+		"the signatures follow their image, and both come before the chart")
+	require.Contains(t, report.String(), "image copied "+controllerRef+"\nsignatures copied "+controllerRef+" (2)\n")
+	require.Contains(t, report.String(), "no signatures to copy "+agentRef+": staging has none\n", "an image that staging did not sign is said so, and is not a failure")
+	require.Equal(t, 1, result.ImagesSigned)
+	require.Equal(t, "released 1 versions, adopted 0\nimages: copied 2, already in production 0, signatures copied for 1\n", result.Summary())
+}
+
+func TestRunDoesNotGiveSignaturesToAnImageThatIsThere(t *testing.T) {
+	opts, plan, reg := stageNew(t)
+	reg.images[controllerRef] = "sha256:img1"
+	reg.signatures[controllerRef] = 2
+
+	result, err := Run(context.Background(), opts, plan, reg, &bytes.Buffer{})
+
+	require.NoError(t, err)
+	require.True(t, result.Done())
+	require.NotContains(t, reg.calls, "signatures "+controllerRef, "what production has stays as it is, signed or not")
+	require.Equal(t, 0, result.ImagesSigned)
+}
+
+func TestRunDoesNotReleaseAVersionWhoseSignaturesFailed(t *testing.T) {
+	opts, plan, reg := stageNew(t)
+	reg.signatureFails[agentRef] = errors.New("the registry refused the signature")
+
+	result, err := Run(context.Background(), opts, plan, reg, &bytes.Buffer{})
+
+	require.NoError(t, err)
+	require.Len(t, result.Failed, 1)
+	require.ErrorContains(t, result.Failed[0].Err, "the registry refused the signature")
+	require.ErrorContains(t, result.Failed[0].Err, "is in production without them: copy them with `cargueiro copy-image-signatures rancher/fleet-agent:v0.17.0`")
+	require.NotContains(t, reg.calls, "chart "+chartRef, "the chart is not copied while an image has no signatures")
+	require.NoFileExists(t, filepath.Join(opts.Repo, "entries", "fleet", "111.0.2+up0.17.0.yaml"))
 }
 
 func TestRunDoesNotReleaseWhatIsMissingAnImage(t *testing.T) {

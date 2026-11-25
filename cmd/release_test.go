@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,11 +55,26 @@ type fakeReleaseRegistry struct {
 	stagingImages map[string]string
 	images        map[string]string
 	imagesCopied  []string
+	// the images that were asked for their signatures, and the copier the factory was given
+	signed         []string
+	copySignatures release.SignatureCopier
+	// the docker config that was in use when the signatures were copied
+	dockerDir, dockerConfig string
 }
 
-func (f *fakeReleaseRegistry) factory(_ *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, _ oci.Retry) release.Registry {
-	f.made, f.guard, f.from, f.to = true, guard, from, to
+func (f *fakeReleaseRegistry) factory(_ *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, _ oci.Retry, copySignatures release.SignatureCopier) release.Registry {
+	f.made, f.guard, f.from, f.to, f.copySignatures = true, guard, from, to, copySignatures
 	return f
+}
+
+func (f *fakeReleaseRegistry) CopyImageSignatures(_ context.Context, image release.Image, _ string) (int, error) {
+	f.signed = append(f.signed, image.Destination.String())
+	// what slsactl would find while the signatures are copied
+	f.dockerDir = os.Getenv("DOCKER_CONFIG")
+	if data, err := os.ReadFile(filepath.Join(f.dockerDir, "config.json")); err == nil {
+		f.dockerConfig = string(data)
+	}
+	return 0, nil
 }
 
 func (f *fakeReleaseRegistry) Inspect(_ context.Context, ref string) (oci.ManifestInfo, error) {
@@ -297,6 +314,33 @@ func TestReleaseNewVersionsWithoutLegacy(t *testing.T) {
 	require.FileExists(t, filepath.Join(production, "entries", "fleet", "111.0.2+up0.17.0.yaml"))
 	require.NoDirExists(t, filepath.Join(production, "legacy"))
 	require.NoFileExists(t, filepath.Join(production, "entries", "fleet", "111.0.1+up0.17.0-rc.4.yaml"))
+}
+
+func TestReleaseNewVersionsCopiesTheSignaturesOfTheImagesItCopies(t *testing.T) {
+	staging, production := releaseStagingNew(t), t.TempDir()
+	fake := newReleaseFake()
+	t.Setenv("DOCKER_CONFIG", "/the/config/of/the/user")
+
+	_, err := runReleaseWith(t, fake, map[string]string{envPassword: "read", envProductionPassword: "write"},
+		"--from", staging, "--repo", production, "--username", "reader", "--production-username", "writer")
+
+	require.NoError(t, err)
+	require.NotNil(t, fake.copySignatures, "the registry is given the copy of slsactl")
+	require.Equal(t, []string{"registry.suse.com/rancher/fleet:v0.17.0", "registry.suse.com/rancher/fleet-agent:v0.17.0"}, fake.signed,
+		"every image that was copied is asked for its signatures")
+
+	// slsactl reads the docker config, so each registry has its own pair in a config for this run
+	var config struct {
+		Auths map[string]struct{ Auth string }
+	}
+	require.NoError(t, json.Unmarshal([]byte(fake.dockerConfig), &config))
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("reader:read")), config.Auths["stgregistry.suse.com"].Auth)
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("writer:write")), config.Auths["registry.suse.com"].Auth)
+	require.NotEqual(t, "/the/config/of/the/user", fake.dockerDir)
+
+	// and what was there is put back, and the config with the passwords is removed
+	require.Equal(t, "/the/config/of/the/user", os.Getenv("DOCKER_CONFIG"))
+	require.NoDirExists(t, fake.dockerDir)
 }
 
 func TestReleaseNewVersionsDryRunSaysWhatIsLeftOut(t *testing.T) {
