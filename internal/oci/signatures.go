@@ -87,7 +87,7 @@ func signatureReferrer(ctx context.Context, repo interface {
 		if err != nil {
 			return false, err
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		var m ocispec.Manifest
 		if err := json.NewDecoder(body).Decode(&m); err != nil {
 			return false, fmt.Errorf("read the manifest of the referrer %s: %w", r.Digest, err)
