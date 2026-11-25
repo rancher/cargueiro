@@ -69,6 +69,7 @@ Repository: rancher/<repository>
 ### The chart folder
 
 The action takes a folder with the chart and, if you give one, the final version of the chart; without it, the version is worked out. Everything that only your repository knows is set before the action.
+- Push the images of the release first, to the staging images registry **and to Docker Hub**. The community pulls them from Docker Hub and the air-gap image list names them there, so the action stops when an image of `helm.sh/images` is missing from either one.
 - Copy the chart to a temporary folder first, so the checkout stays as it is.
 - In the copy, set the `appVersion` and the image tags in `values.yaml` to the release; `stamp` changes neither.
 - If `Chart.yaml` already has a `helm.sh/images` annotation, its image tags are the release too, because `stamp` keeps an annotation that exists and refuses an image tagged `latest`.
@@ -146,7 +147,7 @@ flowchart TD
             prepare -.- valuesFile
             valuesFile -.- valuesRules
         end
-        action["<b>ship-staged action</b><br/>stamp · check · images pushed · package · push,<br/>then starts chart-staged"]
+        action["<b>ship-staged action</b><br/>stamp · check · images pushed (staging and Docker Hub) · package · push,<br/>then starts chart-staged"]
         prep --> action
     end
 
@@ -251,7 +252,7 @@ The dispatch starts the `chart-staged` workflow in `rancher/charts`, which runs 
 
 The log of the action starts with the repository, the ref, the folder and the version, then says for each credential only whether it was loaded, never its value, and it names the command that failed. What to do depends on where it stopped:
 
-- **Before the push.** Nothing is left behind: fix it and run the workflow again. This includes credentials that are missing in Vault, an App that cannot make the token, a version that cannot be worked out, such as a chart with no `appVersion` or a registry that cannot be read, and an image of `helm.sh/images` that is not in the staging images registry: push the images first, then run the workflow again.
+- **Before the push.** Nothing is left behind: fix it and run the workflow again. This includes credentials that are missing in Vault, an App that cannot make the token, a version that cannot be worked out, such as a chart with no `appVersion` or a registry that cannot be read, and an image of `helm.sh/images` that is not in the staging images registry or not on Docker Hub: push the images first, then run the workflow again.
 - **After the push, for one chart.** A version is pushed once, so after the push the same version cannot be run again.
 - **A family that stops halfway.** The charts of a family are pushed one after the other, and a push that stops halfway can be run again: the charts that are in the registry with the same content are skipped, and the rest are pushed. If a chart is there with other content, the job stops before it pushes anything and names the chart with both digests, and the family needs a new version. When the network or the registry fails, each chart is tried up to 5 times, waiting longer each time, so a job can take several minutes to fail.
 - **A family that is not at the same released version.** When the version of a family is worked out, the job can stop with `the charts of the family "<family>" are not at the same released version`, followed by the latest version of each chart. It means that a chart of the family was released alone, with `ship-staged`, and the other charts are behind it. Give the `version` input to set the version of the family yourself: one that none of its charts has released yet, above the highest one in the list.
@@ -276,9 +277,9 @@ These are the commands the action runs, in the order it runs them, for when you 
 | 2 | `cargueiro chart-version <folder>` | Only when you give no version: prints the final version, worked out from the `appVersion` and the versions already released in the staging registry. Writes nothing. | [chart-version](../cmd/docs/chart-version.md) |
 | 3 | `cargueiro stamp <folder> --version <version>` | Runs first as a dry run, with `--dry-run --debug`, which checks everything and writes nothing. Then puts the final version on `Chart.yaml` and lists the images of `values.yaml` in `helm.sh/images`. Refuses a version or an image tag that breaks the rules. | [stamp](../cmd/docs/stamp.md) |
 | 4 | `cargueiro check chart <folder>` | Checks the annotations of the kind of the chart, `helm.sh/images` and the version against the rules. Exits with 1 and prints every error when the chart is not valid. | [check chart](../cmd/docs/check-chart.md) |
-| 5 | `cargueiro check-pushed-dependencies <folder>` | Looks in the staging images registry for every image of `helm.sh/images`, with its tag, and prints their references. When some are not there it prints none, lists all the missing ones in one error and exits with 1, before anything is built or pushed. Writes nothing. A chart with no images passes. | [check-pushed-dependencies](../cmd/docs/check-pushed-dependencies.md) |
+| 5 | `cargueiro check-pushed-dependencies <folder>`, then the same with `--registry docker.io` | Looks in the staging images registry, and then on Docker Hub, for every image of `helm.sh/images`, with its tag, and prints their references. When some are not there it prints none, lists all the missing ones in one error and exits with 1, before anything is built or pushed. Writes nothing. A chart with no images passes. | [check-pushed-dependencies](../cmd/docs/check-pushed-dependencies.md) |
 | 6 | `cargueiro package <folder> --output-dir <dir>` | Runs the same check, builds the archive and prints its path. The archive is removed and the step fails if it is not valid or if a file differs from the folder. | [package](../cmd/docs/package.md) |
 | 7 | `cargueiro push <archive> --registry <registry>/rancher/catalog` | Pushes the archive to the staging registry, with the credentials from `CARGUEIRO_USERNAME` and `CARGUEIRO_PASSWORD`. A version is pushed once, and a chart goes only to the repository of its edition. Prints the reference it pushed. | [push](../cmd/docs/push.md) |
 | 8 | `gh workflow run chart-staged.yaml --repo rancher/charts --ref staging ...` | Starts the `chart-staged` workflow of `rancher/charts` with the name and the version of the chart, which ships and indexes it (see [What rancher/charts does](#what-ranchercharts-does)). | |
 
-For a family, the action runs the same commands with `--family <name>` and the folders of every chart, or their archives for `push`: `chart-version --family`, `stamp --family`, `check chart --family`, `package --family` and `push --family`. `check-pushed-dependencies` has no `--family`: the action runs it once for each folder of the family. Each of the others refuses folders or archives that are not exactly the charts of the family before it changes anything, and the main chart comes first.
+For a family, the action runs the same commands with `--family <name>` and the folders of every chart, or their archives for `push`: `chart-version --family`, `stamp --family`, `check chart --family`, `package --family` and `push --family`. `check-pushed-dependencies` has no `--family`: the action runs it once for each folder of the family and for each of the two registries, and reports the missing images of every chart together. Each of the others refuses folders or archives that are not exactly the charts of the family before it changes anything, and the main chart comes first.
