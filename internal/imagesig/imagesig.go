@@ -122,8 +122,9 @@ func one(ctx context.Context, image Image, b Backend, dryRun bool) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("read the signatures in the destination registry after the copy: %w", err)
 	}
-	// The source can have more than the copy brings, such as attestations that are not
-	// recognised as one, so fewer than the source is fine when the copy added signatures.
+	// The copy is slsactl's: it creates the tag that lists what refers to the image, and leaves
+	// it as it is when the destination has it already. So it is a failure when it added nothing
+	// and the destination still has fewer signatures than the source.
 	if after <= before && after < have {
 		return "", fmt.Errorf("the destination has %d signatures after the copy, as before it, and the source has %d", after, have)
 	}
