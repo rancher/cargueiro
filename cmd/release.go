@@ -19,8 +19,9 @@ const (
 )
 
 // releaseRegistryFactory builds the registry a release reads the charts from, with
-// the options from, and copies them to, with the options to.
-type releaseRegistryFactory func(cfg *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry) release.Registry
+// the options from, and copies them to, with the options to. The signatures of the images it
+// copies are copied by copySignatures.
+type releaseRegistryFactory func(cfg *rules.Config, guard *oci.Guard, from, to oci.FetchOptions, retry oci.Retry, copySignatures release.SignatureCopier) release.Registry
 
 func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobra.Command, error) {
 	var from, repoDir, registry, imageRegistry, stagingImageRegistry, productionUsername string
@@ -65,10 +66,11 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 				return nil
 			}
 
-			reg, err := openReleaseRegistry(cmd, opts, newRegistry, plan, creds, productionUsername, plainHTTP)
+			reg, restore, err := openReleaseRegistry(cmd, opts, newRegistry, plan, creds, productionUsername, plainHTTP)
 			if err != nil {
 				return err
 			}
+			defer restore()
 			result, err := release.Run(cmd.Context(), releaseOpts, plan, reg, cmd.OutOrStdout())
 			if err != nil {
 				return err
@@ -106,8 +108,9 @@ func newReleaseCmd(opts *rootOptions, newRegistry releaseRegistryFactory) (*cobr
 // which must be one, with the credentials given for it, or the saved login for it,
 // or none. They are written to the production registry, which must be one too, with
 // its own credentials: the username from --production-username or the environment,
-// and the password from the environment only.
-func openReleaseRegistry(cmd *cobra.Command, opts *rootOptions, newRegistry releaseRegistryFactory, plan release.Plan, creds credentialFlags, productionUsername string, plainHTTP bool) (release.Registry, error) {
+// and the password from the environment only. It also returns the function that
+// removes what the copy of the signatures needs, which is called when the release ends.
+func openReleaseRegistry(cmd *cobra.Command, opts *rootOptions, newRegistry releaseRegistryFactory, plan release.Plan, creds credentialFlags, productionUsername string, plainHTTP bool) (release.Registry, func(), error) {
 	var sources, destinations []string
 	add := func(list []string, host string) []string {
 		if slices.Contains(list, host) {
@@ -124,30 +127,37 @@ func openReleaseRegistry(cmd *cobra.Command, opts *rootOptions, newRegistry rele
 		}
 	}
 	if len(sources) != 1 || len(destinations) != 1 {
-		return nil, fmt.Errorf("the versions to release are read from %v and copied to %v: a release works between one registry and one registry", sources, destinations)
+		return nil, nil, fmt.Errorf("the versions to release are read from %v and copied to %v: a release works between one registry and one registry", sources, destinations)
 	}
 
 	guard, err := newGuard(opts.rules)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ctx := cmd.Context()
 	source, err := creds.read(opts).connection(ctx, sources[0])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if productionUsername == "" {
 		productionUsername = opts.getenv(envProductionUsername)
 	}
 	production, err := resolveConnection(ctx, opts, destinations[0], productionUsername, opts.getenv(envProductionPassword))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg, err := rules.Parse(opts.rules)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return newRegistry(cfg, guard, fetchOptions(source, plainHTTP), fetchOptions(production, plainHTTP), oci.DefaultRetry()), nil
+
+	// slsactl copies the signatures with the docker config, as it did for charts-build-scripts.
+	// The credentials are the two pairs of this release, in a config of their own for this run.
+	restore, err := useDockerConfig(map[string]credentials{sources[0]: source.credentials, destinations[0]: production.credentials})
+	if err != nil {
+		return nil, nil, err
+	}
+	return newRegistry(cfg, guard, fetchOptions(source, plainHTTP), fetchOptions(production, plainHTTP), oci.DefaultRetry(), copySignatures), restore, nil
 }
 
 // fetchOptions turns a connection into the options of a read or a write.

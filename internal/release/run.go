@@ -43,6 +43,9 @@ type Result struct {
 	// ImagesCopied and ImagesPresent count the images of the charts that were copied to
 	// production, and the ones it had already, which are not touched.
 	ImagesCopied, ImagesPresent int
+	// ImagesSigned counts the images that were copied and had signatures in staging, which
+	// were copied with them. An image that is already in production keeps what it has.
+	ImagesSigned int
 }
 
 // Done says whether every version of the plan was released.
@@ -55,7 +58,11 @@ func (r Result) imagesLine() string {
 	if r.ImagesCopied+r.ImagesPresent == 0 {
 		return ""
 	}
-	return fmt.Sprintf("\nimages: copied %d, already in production %d", r.ImagesCopied, r.ImagesPresent)
+	line := fmt.Sprintf("\nimages: copied %d, already in production %d", r.ImagesCopied, r.ImagesPresent)
+	if r.ImagesSigned > 0 {
+		line += fmt.Sprintf(", signatures copied for %d", r.ImagesSigned)
+	}
+	return line
 }
 
 // Summary says what was done in a few lines. What did not go through comes last
@@ -209,7 +216,29 @@ func releaseImage(ctx context.Context, image Image, reg Registry, result *Result
 		return fmt.Errorf("the image %s has the manifest %s after the copy, and staging has %s", image.Destination, got, digest)
 	}
 	result.ImagesCopied++
-	return say(report, "image copied %s\n", image.Destination)
+	if err := say(report, "image copied %s\n", image.Destination); err != nil {
+		return err
+	}
+	return releaseSignatures(ctx, image, digest, reg, result, report)
+}
+
+// releaseSignatures copies the signatures of an image that was just copied. A signature is not
+// part of the manifest of the image, so copying the image by its digest leaves it behind. An image
+// that production already had is not given any: only the one that was copied here is. Staging may
+// have none, which is said and is not an error. When the copy fails the image is in production
+// without them, and the version is not released: `copy-image-signatures` copies them, as that
+// image is present and not copied again by the next run.
+func releaseSignatures(ctx context.Context, image Image, digest string, reg Registry, result *Result, report io.Writer) error {
+	n, err := reg.CopyImageSignatures(ctx, image, digest)
+	if err != nil {
+		return fmt.Errorf("copy the signatures of the image %s, which is in production without them: copy them with `cargueiro copy-image-signatures %s`: %w",
+			image.Destination, image.Destination.Repository+":"+image.Destination.Tag, err)
+	}
+	if n == 0 {
+		return say(report, "no signatures to copy %s: staging has none\n", image.Destination)
+	}
+	result.ImagesSigned++
+	return say(report, "signatures copied %s (%d)\n", image.Destination, n)
 }
 
 // writeEntry writes the entry of a version to the production repository, to the folder of
